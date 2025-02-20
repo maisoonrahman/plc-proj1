@@ -1,4 +1,3 @@
-if (7 > 6)
-return 5;
-else
-return 6;
+var x = 5;
+var y = 2;
+return x + y;
