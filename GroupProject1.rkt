@@ -17,10 +17,12 @@
     (cond
       ((null? tree)       state)
       ((list? (car tree)) (M_state (cdr tree) (M_state (car tree) state)));call the main method on the cdr and pass in the state updated by the car
-      ((isDeclare tree)   (list (list 0)));placeholder return
+      ((isDeclare tree)   (list (list 0)));placeholder
       ((isAssign tree)    (list (list 0)));placeholder
       ((isReturn tree)    (update-binding 'return (M_int (cdr tree) state) state))
-      ((isIf tree)        (list (list 0)));placeholder
+      ((isIf tree)        (if (M_bool (cadr tree) state)
+                              (M_state (caddr tree) state)
+                              (M_state (cadddr tree) state)));cannot handle else if
       ((isWhile tree)     (list (list 0))))));placeholder
 
 ;takes in an expression(can have subexpressions) and a state and returns a value
@@ -29,6 +31,7 @@
     (cond
       ((null? tree)             0)
       ((number? tree)           tree)
+      ((number? (car tree))     (car tree))
       ((list? (car tree))       (M_int (car tree) state))
       ((eq? '+ (operator tree)) (+ (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
       ((eq? '- (operator tree)) (- (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
@@ -37,16 +40,22 @@
       ((eq? '% (operator tree)) (remainder (M_int (firstoperand tree) state) (M_int (secondoperand tree) state))))))
 
 ;takes in a parse tree, state and returns #t or #f
-;cant handle == >.... also cant handle !=
 (define M_bool
   (lambda (tree state)
     (cond
-      ((null? tree) #f)
-      ((boolean? tree) tree)
+      ((null? tree)              #f)
+      ((boolean? tree)           tree)
+      ((boolean? (car tree))     (car tree))
+      ((list? (car tree))        (M_bool (car tree) state))
       ((eq? '&& (operator tree)) (and (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
       ((eq? '|| (operator tree)) (or (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
-      ((eq? '! (operator tree)) (not (M_bool (firstoperand tree) state)))
-      ((list? (car tree)) (M_bool (car tree) state))
+      ((eq? '! (operator tree))  (not (M_bool (firstoperand tree) state)))
+      ((eq? '> (operator tree))  (> (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '< (operator tree))  (< (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '== (operator tree)) (= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '>= (operator tree)) (>= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '<= (operator tree)) (<= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '!= (operator tree)) (not (= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))))))
 
 ;state binding and lookup functions
 (define get-value;given variable name and state function, find the assigned value of the variable
@@ -63,8 +72,8 @@
 
 ;takes in variable name, and state function and will return a state that
 ;unfinished
-(define create-binding
-  (lambda (name value state)))
+;(define create-binding
+  ;(lambda (name value state)))
 
 ;takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
 (define update-binding

@@ -1,1 +1,4 @@
-return 5 * 10;
+if (7 > 6)
+return 5;
+else
+return 6;
