@@ -203,7 +203,6 @@
 (define lhs-parse
   (lambda ()
     (let ((lhs (get-next-symbol)))
-      (displayln (format "lhs token: ~a" lhs)) ; Debug 
       (if (eq? (car lhs) 'ID)
          (list (cdr lhs))
          (error 'parser "Illegal left hand side of assignment")))))
