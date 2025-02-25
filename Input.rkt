@@ -1,3 +1,1 @@
-var y;
-y = 10;
-return y;
+return (10 > 20) || (5 - 6 < 10) && true;

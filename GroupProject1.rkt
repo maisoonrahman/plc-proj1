@@ -43,10 +43,12 @@
                                (create-binding (cadr tree) '() state)
                                (create-binding (cadr tree) (M_value (caddr tree) state) state)))
       ((isAssign tree)     (update-binding (cadr tree) (M_value (caddr tree) state) state))  ; shooting into the dark rn ;(list (list 0)));placeholder
-      ((isReturn tree)     (update-binding 'return (M_value (cdr tree) state) state))
+      ((isReturn tree)     (update-binding 'return (M_value (cadr tree) state) state))
       ((isIf tree)         (if (M_bool (cadr tree) state)
                                (M_state (caddr tree) state)
-                               (M_state (cadddr tree) state)))    ;TODO: check with Adam to see if else-if handling is needed 
+                               (if (null? (cdddr tree))
+                                   state
+                                   (M_state (cadddr tree) state))))    ;TODO: check with Adam to see if else-if handling is needed 
       ((isWhile tree)      (if (M_bool (cadr tree) state)
                                (M_state tree (M_state (caddr tree) state))
                                state)))))
@@ -64,9 +66,21 @@
       ((boolean? tree)          tree)
       ((number? tree)           tree)
       ((not (pair? tree))       (get-value tree state))
-      ((boolean? (car tree))    (car tree))
-      ((number? (car tree))     (car tree))
-      ((not (pair? (car tree))) (get-value (car tree) state)))));this just feels messy and inefficient
+      ((null? (cdr tree))       (M_value (car tree) state))
+      ((eq? '+ (operator tree)) (+ (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '- (operator tree)) (- (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '* (operator tree)) (* (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '/ (operator tree)) (quotient (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '% (operator tree)) (remainder (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '&& (operator tree)) (and (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
+      ((eq? '|| (operator tree)) (or (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
+      ((eq? '! (operator tree))  (not (M_bool (firstoperand tree) state)))
+      ((eq? '> (operator tree))  (> (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '< (operator tree))  (< (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '== (operator tree)) (= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '>= (operator tree)) (>= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '<= (operator tree)) (<= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '!= (operator tree)) (not (= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))))));this just feels messy and inefficient
 
 ;M-int: takes an expression (can have subexpressions) and a state and returns a value
 (define M_int
@@ -75,9 +89,7 @@
       ((null? tree)             0)
       ((number? tree)           tree)
       ((not (pair? tree))       (get-value tree state))     ;when atom/var name passed in
-      ((number? (car tree))     (car tree))
-      ((list? (car tree))       (M_int (car tree) state))
-      ((null? (cdr tree))       (get-value (car tree) state))      ;check if tree is a variable and returns value
+      ((null? (cdr tree))       (M_int (car tree) state))
       ((eq? '+ (operator tree)) (+ (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
       ((eq? '- (operator tree)) (- (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
       ((eq? '* (operator tree)) (* (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
@@ -93,8 +105,8 @@
     (cond
       ((null? tree)              #f)
       ((boolean? tree)           tree)
-      ((boolean? (car tree))     (car tree))
-      ((list? (car tree))        (M_bool (car tree) state))
+      ((not (pair? tree))        (get-value tree state))
+      ((null? (cdr tree))        (M_bool (car tree) state))
       ((eq? '&& (operator tree)) (and (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
       ((eq? '|| (operator tree)) (or (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
       ((eq? '! (operator tree))  (not (M_bool (firstoperand tree) state)))
