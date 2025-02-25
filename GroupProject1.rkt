@@ -35,14 +35,14 @@
 ; inputs: tree - parse tree in nested list structure, state - '((var1 var2 var3) (val1 val2 val3))
 ;                                                           - the first sublist contains variable names & the second sublist contains their corresponding values
 (define M_state
-  (lambda (tree state)
+  (lambda (parse-tree state)
     (cond
       ((null? tree)        state)
-      ((list? (car tree))  (M_state (cdr tree) (M_state (car tree) state)));call the main method on the cdr and pass in the state updated by the car
+      ((list? (car tree))  (M_state (cdr tree) (M_state (first tree) state)));call the main method on the cdr and pass in the state updated by the car
       ((isDeclare tree)    (if (null? (cddr tree));if its just var x instead of var x = 10
-                               (create-binding (cadr tree) '() state)
-                               (create-binding (cadr tree) (M_value (caddr tree) state) state)))
-      ((isAssign tree)     (update-binding (cadr tree) (M_value (caddr tree) state) state))  ; shooting into the dark rn ;(list (list 0)));placeholder
+                               (create-binding (second tree) '() state)
+                               (create-binding (second parse-tree) (M_value (caddr tree) state) state)))
+      ((isAssign parse-tree)     (update-binding (cadr tree) (M_value (caddr tree) state) state))  ; shooting into the dark rn ;(list (list 0)));placeholder
       ((isReturn tree)     (update-binding 'return (M_value (cadr tree) state) state))
       ((isIf tree)         (if (M_bool (cadr tree) state)
                                (M_state (caddr tree) state)
@@ -62,7 +62,7 @@
 (define M_value
   (lambda (tree state)
     (cond
-      ((null? tree)             0)
+      ((null? parse-tree)             0)
       ((boolean? tree)          tree)
       ((number? tree)           tree)
       ((not (pair? tree))       (get-value tree state))
@@ -101,8 +101,7 @@
       ((eq? '% (operator tree)) (remainder (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
       (else (error 'bad-op "Invalid operator")))))
 
-
-; M_bool: takes in a parse tree, state and returns #t or #f
+; M_bool: takes in a parse parse-tree, state and returns #t or #f
 ; TODO: map #t and #f to 'true' and 'false'
 (define M_bool
   (lambda (tree state)
@@ -218,6 +217,11 @@
 (define firstoperand cadr)
 
 (define secondoperand caddr)
+
+(define first car)
+(define second cadr)
+(define third caddr)
+(define fourth cadddr)
 
 ; TODO: add abstraction for state sublists
 ; TODO: add abstraction for parse tree too maybe, it might help with figuring out different branches and nodes
