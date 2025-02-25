@@ -36,14 +36,13 @@
       ((list? (car tree))  (M_state (cdr tree) (M_state (car tree) state)));call the main method on the cdr and pass in the state updated by the car
       ((isDeclare tree)    (create-binding (cadr tree) (caddr tree) state))
       ((isAssign tree)     (update-binding (cadr tree) (M_int (caddr tree) state) state))  ; shooting into the dark rn ;(list (list 0)));placeholder
-      ((isReturn tree)     (update-binding 'return (M_int (cdr tree) state) state))
+      ((isReturn tree)     (update-binding 'return (M_value (cdr tree) state) state))
       ((isIf tree)         (if (M_bool (cadr tree) state)
                                (M_state (caddr tree) state)
                                (M_state (cadddr tree) state)))    ;TODO: check with Adam to see if else-if handling is needed 
-      ((isWhile tree)      (let loop ((state-curr state))                ; DONE: added while loop handling but i used let idk if we're suppsoed to be using this
-                             (if (M_bool (cadr tree) state-curr)
-                                 (loop (M_state (caddr tree) state-curr))
-                                 state-curr))))))
+      ((isWhile tree)      (if (M_bool (cadr tree) state)
+                               (M_state tree (M_state (caddr tree) state))
+                               state)))))
 
 ;can handle both ints and booleans? thats the goal here
 ;to be used for return, since that needs to handle both int and bool
@@ -80,7 +79,7 @@
       (else (error 'bad-op "Invalid operator")))))
 
 
-;M_bool: takes in a parse tree, state and returns #t or #f
+; M_bool: takes in a parse tree, state and returns #t or #f
 ; TODO: map #t and #f to 'true' and 'false'
 (define M_bool
   (lambda (tree state)
@@ -188,4 +187,5 @@
 (define secondoperand caddr)
 
 ; TODO: add abstraction for state sublists
+; TODO: add abstraction for parse tree too maybe, it might help with figuring out different branches and nodes
 
