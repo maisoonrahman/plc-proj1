@@ -1,4 +1,4 @@
-#lang racket
+#lang scheme
 (require "simpleParser.rkt")
 
 ; ===================================================================================================================================
@@ -67,7 +67,9 @@
       ((number? tree)           tree)
       ((not (pair? tree))       (get-value tree state))
       ((null? (cdr tree))       (M_value (car tree) state))
+      ((and (eq? '+ (operator tree)) (null? (cddr tree))) (M_int (firstoperand tree) state))
       ((eq? '+ (operator tree)) (+ (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((and (eq? '- (operator tree)) (null? (cddr tree))) (* -1 (M_int (firstoperand tree) state)))
       ((eq? '- (operator tree)) (- (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
       ((eq? '* (operator tree)) (* (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
       ((eq? '/ (operator tree)) (quotient (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
@@ -90,7 +92,9 @@
       ((number? tree)           tree)
       ((not (pair? tree))       (get-value tree state))     ;when atom/var name passed in
       ((null? (cdr tree))       (M_int (car tree) state))
+      ((and (eq? '+ (operator tree)) (null? (cddr tree))) (M_int (firstoperand tree) state))
       ((eq? '+ (operator tree)) (+ (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((and (eq? '- (operator tree)) (null? (cddr tree))) (* -1 (M_int (firstoperand tree) state)))
       ((eq? '- (operator tree)) (- (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
       ((eq? '* (operator tree)) (* (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
       ((eq? '/ (operator tree)) (quotient (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
@@ -104,6 +108,8 @@
   (lambda (tree state)
     (cond
       ((null? tree)              #f)
+      ((eq? 'true tree)          #t)
+      ((eq? 'false tree)         #f)
       ((boolean? tree)           tree)
       ((not (pair? tree))        (get-value tree state))
       ((null? (cdr tree))        (M_bool (car tree) state))
@@ -139,11 +145,12 @@
 
 (define get-value;given variable name and state function, find the assigned value of the variable
   (lambda (var state)
-    (displayln (format "get-binding called with var: ~a, state: ~a" var state))  ; debugging
+    (displayln (format "get-value called with var: ~a, state: ~a" var state))  ; debugging
     (cond
-      ((null? (car state)) 0)     ; maisoon: girl we gotta keep this for now     ;i want this one to throw an error, idk how
       ((number? var) var)
       ((boolean? var) var)
+      ((null? (car state)) (raise-syntax-error #f "variable could not be found"))     ; maisoon: girl we gotta keep this for now     ;i want this one to throw an error, idk how
+      ((and (eq? var (caar state)) (null? (caadr state))) (error "variable was not initialized"))
       ((eq? var (caar state)) (caadr state))
       (else (get-value var (list (cdar state) (cdadr state)))))))
  
@@ -153,7 +160,7 @@
   (lambda (var state)
     (displayln (format "get-binding called with var: ~a, state: ~a" var state))  ; debugging
     (cond
-      ((null? (car state)) 0)
+      ((null? (car state)) (raise-syntax-error #f "variable could not be found"))
       ((number? var) var)
       ((eq? var (caar state)) (list (caar state) (caadr state)))
       (else (get-binding var (list (cdar state) (cdadr state)))))))
@@ -163,13 +170,19 @@
 ; TODO: add check later if needed
 (define create-binding
   (lambda (var value state)
-    (list (cons var (car state)) (cons value (cadr state)))))
+    (with-handlers
+       ([exn:fail:syntax? (lambda (e) 
+                      (list (cons var (car state)) (cons value (cadr state))))])
+      (get-value var state)
+      (error "variable already exists"))))
+
 
 ; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
 (define update-binding
   (lambda (var value state)
     (cond
-      ((null? (car state)) state)             ;variable could not be found in state
+      ((null? (car state)) (error "variable used before declaration")
+)             ;variable could not be found in state
       ((eq? var (caar state)) (list (car state) (cons value (cdadr state))))
       (else (update-binding var value (list (cdar state) (cdadr state)))))))
 
