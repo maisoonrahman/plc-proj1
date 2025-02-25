@@ -18,6 +18,11 @@
   (lambda ()
     (get-value 'return (M_state (parser "Input.rkt") '((return) (0))))))
 
+;in order to be able to see what the parser will output
+(define parse
+  (lambda ()
+    (parser "Input.rkt")))
+
 ; ------------------------------------------------------------------------------------------------------------------------------------
 ; ------------------------------------------------------------------------------------------------------------------------------------
 ;                                                     Mapping Functions
@@ -34,8 +39,10 @@
     (cond
       ((null? tree)        state)
       ((list? (car tree))  (M_state (cdr tree) (M_state (car tree) state)));call the main method on the cdr and pass in the state updated by the car
-      ((isDeclare tree)    (create-binding (cadr tree) (caddr tree) state))
-      ((isAssign tree)     (update-binding (cadr tree) (M_int (caddr tree) state) state))  ; shooting into the dark rn ;(list (list 0)));placeholder
+      ((isDeclare tree)    (if (null? (cddr tree));if its just var x instead of var x = 10
+                               (create-binding (cadr tree) '() state)
+                               (create-binding (cadr tree) (M_value (caddr tree) state) state)))
+      ((isAssign tree)     (update-binding (cadr tree) (M_value (caddr tree) state) state))  ; shooting into the dark rn ;(list (list 0)));placeholder
       ((isReturn tree)     (update-binding 'return (M_value (cdr tree) state) state))
       ((isIf tree)         (if (M_bool (cadr tree) state)
                                (M_state (caddr tree) state)
@@ -124,6 +131,7 @@
     (cond
       ((null? (car state)) 0)     ; maisoon: girl we gotta keep this for now     ;i want this one to throw an error, idk how
       ((number? var) var)
+      ((boolean? var) var)
       ((eq? var (caar state)) (caadr state))
       (else (get-value var (list (cdar state) (cdadr state)))))))
  
@@ -149,7 +157,7 @@
 (define update-binding
   (lambda (var value state)
     (cond
-      ((null? (caar state)) state)             ;variable could not be found in state
+      ((null? (car state)) state)             ;variable could not be found in state
       ((eq? var (caar state)) (list (car state) (cons value (cdadr state))))
       (else (update-binding var value (list (cdar state) (cdadr state)))))))
 
