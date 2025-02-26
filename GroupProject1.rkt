@@ -10,7 +10,7 @@
 
 
 ; to run the program, just do (run) in the terminal
-; it just sends the parsed input file and an empty state list, with a 0 return value
+; it sends the parsed input file and an empty state list, with a 0 return value
 ; and then it will print out the return value, which is the only value in the first list of the state
 ; run function to test:
 
@@ -29,8 +29,6 @@
 ; ------------------------------------------------------------------------------------------------------------------------------------
 ; ------------------------------------------------------------------------------------------------------------------------------------
 
-; this is where we actually do everything? hopefully this can work
-
 ; M_state: takes in the parsed input and a state list and returns the state list
 ; inputs: tree - parse tree in nested list structure, state - '((var1 var2 var3) (val1 val2 val3))
 ;                                                           - the first sublist contains variable names & the second sublist contains their corresponding values
@@ -43,7 +41,10 @@
                                (create-binding (second tree) '() state)
                                (create-binding (second tree) (M_value (caddr tree) state) state)))
       ((isAssign tree)     (update-binding (cadr tree) (M_value (caddr tree) state) state))  ; shooting into the dark rn ;(list (list 0)));placeholder
-      ((isReturn tree)     (update-binding 'return (M_value (cadr tree) state) state))
+      ((isReturn tree)     (update-binding 'return (if (number? (M_value (cadr tree) state)) 
+                                               (M_value (cadr tree) state) 
+                                               (if (M_bool (cadr tree) state) 'true 'false))
+                                           state))
       ((isIf tree)         (if (M_bool (cadr tree) state)
                                (M_state (caddr tree) state)
                                (if (null? (cdddr tree))
@@ -182,7 +183,6 @@
 ;                                                   Abstraction Functions
 ; ------------------------------------------------------------------------------------------------------------------------------------
 ; ------------------------------------------------------------------------------------------------------------------------------------
-    
 (define isDeclare
   (lambda (lis)
     (eq? 'var (car lis))))
