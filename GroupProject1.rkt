@@ -35,14 +35,14 @@
 ; inputs: tree - parse tree in nested list structure, state - '((var1 var2 var3) (val1 val2 val3))
 ;                                                           - the first sublist contains variable names & the second sublist contains their corresponding values
 (define M_state
-  (lambda (parse-tree state)
+  (lambda (tree state)
     (cond
       ((null? tree)        state)
       ((list? (car tree))  (M_state (cdr tree) (M_state (first tree) state)));call the main method on the cdr and pass in the state updated by the car
       ((isDeclare tree)    (if (null? (cddr tree));if its just var x instead of var x = 10
                                (create-binding (second tree) '() state)
-                               (create-binding (second parse-tree) (M_value (caddr tree) state) state)))
-      ((isAssign parse-tree)     (update-binding (cadr tree) (M_value (caddr tree) state) state))  ; shooting into the dark rn ;(list (list 0)));placeholder
+                               (create-binding (second tree) (M_value (caddr tree) state) state)))
+      ((isAssign tree)     (update-binding (cadr tree) (M_value (caddr tree) state) state))  ; shooting into the dark rn ;(list (list 0)));placeholder
       ((isReturn tree)     (update-binding 'return (M_value (cadr tree) state) state))
       ((isIf tree)         (if (M_bool (cadr tree) state)
                                (M_state (caddr tree) state)
@@ -53,53 +53,49 @@
                                (M_state tree (M_state (caddr tree) state))
                                state)))))
 
-;can handle both ints and booleans? thats the goal here
-;to be used for return, since that needs to handle both int and bool
-;i have no idea how to do this :/
-;unfinished
-; TODO: finish this (i can finish this -maisoon)
-; M_value: takes the parse tree and state list and returns 
+
+; M_value: takes the parse tree and state list and returns either a bool or int based on the value of the expression
+;might be better to use expr than tree here, it makes more sense
 (define M_value
   (lambda (tree state)
     (cond
-      ((null? parse-tree)             0)
-      ((boolean? tree)          tree)
-      ((number? tree)           tree)
-      ((not (pair? tree))       (get-value tree state))
-      ((null? (cdr tree))       (M_value (car tree) state))
-      ((and (eq? '+ (operator tree)) (null? (cddr tree))) (M_int (firstoperand tree) state))
-      ((eq? '+ (operator tree)) (+ (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((null? tree)                                       0)
+      ((boolean? tree)                                    tree)
+      ((number? tree)                                     tree)
+      ((not (pair? tree))                                 (get-value tree state))
+      ((null? (cdr tree))                                 (M_value (car tree) state))
+      ((eq? '+ (operator tree))                           (+ (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
       ((and (eq? '- (operator tree)) (null? (cddr tree))) (* -1 (M_int (firstoperand tree) state)))
-      ((eq? '- (operator tree)) (- (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '* (operator tree)) (* (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '/ (operator tree)) (quotient (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '% (operator tree)) (remainder (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '&& (operator tree)) (and (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
-      ((eq? '|| (operator tree)) (or (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
-      ((eq? '! (operator tree))  (not (M_bool (firstoperand tree) state)))
-      ((eq? '> (operator tree))  (> (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '< (operator tree))  (< (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '== (operator tree)) (= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '>= (operator tree)) (>= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '<= (operator tree)) (<= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '!= (operator tree)) (not (= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))))));this just feels messy and inefficient
+      ((eq? '- (operator tree))                           (- (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '* (operator tree))                           (* (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '/ (operator tree))                           (quotient (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '% (operator tree))                           (remainder (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '&& (operator tree))                          (and (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
+      ((eq? '|| (operator tree))                          (or (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
+      ((eq? '! (operator tree))                           (not (M_bool (firstoperand tree) state)))
+      ((eq? '> (operator tree))                           (> (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '< (operator tree))                           (< (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '== (operator tree))                          (= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '>= (operator tree))                          (>= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '<= (operator tree))                          (<= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '!= (operator tree))                          (not (= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state))))
+      (else                                               (error "value could not be understood")))));this just feels messy and inefficient
 
 ;M-int: takes an expression (can have subexpressions) and a state and returns a value
 (define M_int
   (lambda (tree state)
     (cond
-      ((null? tree)             0)
-      ((number? tree)           tree)
-      ((not (pair? tree))       (get-value tree state))     ;when atom/var name passed in
-      ((null? (cdr tree))       (M_int (car tree) state))
-      ((and (eq? '+ (operator tree)) (null? (cddr tree))) (M_int (firstoperand tree) state))
-      ((eq? '+ (operator tree)) (+ (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((null? tree)                                       0)
+      ((number? tree)                                     tree)
+      ((not (pair? tree))                                 (get-value tree state));when atom/var name passed in
+      ((null? (cdr tree))                                 (M_int (car tree) state))
+      ((eq? '+ (operator tree))                           (+ (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
       ((and (eq? '- (operator tree)) (null? (cddr tree))) (* -1 (M_int (firstoperand tree) state)))
-      ((eq? '- (operator tree)) (- (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '* (operator tree)) (* (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '/ (operator tree)) (quotient (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '% (operator tree)) (remainder (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      (else (error 'bad-op "Invalid operator")))))
+      ((eq? '- (operator tree))                           (- (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '* (operator tree))                           (* (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '/ (operator tree))                           (quotient (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      ((eq? '% (operator tree))                           (remainder (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
+      (else                                               (error 'bad-op "Invalid operator")))))
 
 ; M_bool: takes in a parse parse-tree, state and returns #t or #f
 ; TODO: map #t and #f to 'true' and 'false'
@@ -144,46 +140,41 @@
 
 (define get-value;given variable name and state function, find the assigned value of the variable
   (lambda (var state)
-    (displayln (format "get-value called with var: ~a, state: ~a" var state))  ; debugging
+    ;(displayln (format "get-value called with var: ~a, state: ~a" var state))  ; debugging
     (cond
-      ((number? var) var)
-      ((boolean? var) var)
-      ((null? (car state)) (raise-syntax-error #f "variable could not be found"))     ; maisoon: girl we gotta keep this for now     ;i want this one to throw an error, idk how
+      ((number? var)                                      var)
+      ((boolean? var)                                     var)
+      ((null? (car state))                                (error "variable could not be found"))
       ((and (eq? var (caar state)) (null? (caadr state))) (error "variable was not initialized"))
-      ((eq? var (caar state)) (caadr state))
-      (else (get-value var (list (cdar state) (cdadr state)))))))
+      ((eq? var (caar state))                             (caadr state))
+      (else                                               (get-value var (list (cdar state) (cdadr state)))))))
  
-
-; get-binding: takes variable name and a state list and returns a pair of '(var val)
-(define get-binding
-  (lambda (var state)
-    (displayln (format "get-binding called with var: ~a, state: ~a" var state))  ; debugging
-    (cond
-      ((null? (car state)) (raise-syntax-error #f "variable could not be found"))
-      ((number? var) var)
-      ((eq? var (caar state)) (list (caar state) (caadr state)))
-      (else (get-binding var (list (cdar state) (cdadr state)))))))
 
 ; create-binding: takes a variable name, value, and state function and will return a state that contains the binding
 ; its assumed that the variable name doesnt already exist, theres no check in place
 ; TODO: add check later if needed
 (define create-binding
   (lambda (var value state)
-    (with-handlers
-       ([exn:fail:syntax? (lambda (e) 
-                      (list (cons var (car state)) (cons value (cadr state))))])
-      (get-value var state)
-      (error "variable already exists"))))
+    (if (check-binding var state)
+        (error "variable already exists")
+        (list (cons var (car state)) (cons value (cadr state))))))
 
 
 ; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
 (define update-binding
   (lambda (var value state)
     (cond
-      ((null? (car state)) (error "variable used before declaration")
-)             ;variable could not be found in state
+      ((null? (car state))    (error "variable must be declared"));variable could not be found in state
       ((eq? var (caar state)) (list (car state) (cons value (cdadr state))))
-      (else (update-binding var value (list (cdar state) (cdadr state)))))))
+      (else                   (update-binding var value (list (cdar state) (cdadr state)))))))
+
+;check-binding takes in var name, state and returns true if var already exists, false otherwise
+(define check-binding
+  (lambda (var state)
+    (cond
+      ((null? (car state))    #f)
+      ((eq? var (caar state)) #t)
+      (else                   (check-binding var (list (cdar state) (cdadr state)))))))
 
 
 ; ------------------------------------------------------------------------------------------------------------------------------------

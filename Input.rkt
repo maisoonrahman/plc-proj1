@@ -1,5 +1,4 @@
-var x = 5;
-var y = 6;
-if (x == y)
-  x = 10;
+var x = 10;
+var y = 20;
+var x = x + y;
 return x;
