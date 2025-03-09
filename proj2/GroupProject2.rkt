@@ -32,63 +32,82 @@
 ; M_state: takes in the parsed input and a state list and returns the state list
 ; inputs: tree - parse tree in nested list structure, state - '((var1 var2 var3) (val1 val2 val3))
 ;                                                           - the first sublist contains variable names & the second sublist contains their corresponding values
-(define M_state
-  (lambda (tree state)
-    (cond
-      ((null? tree)                state)
-      ((list? (car tree))          (M_state (cdr tree) (M_state (first tree) state)))
-      ((isDeclare tree)            (if (null? (cddr tree))
-                                       (create-binding (second tree) '() state)
-                                       (create-binding (second tree) (M_int (caddr tree) state) state)))
-      ((isAssign tree)             (update-binding (cadr tree) (M_int (caddr tree) state) state))  
-      ((isReturn tree)             (update-binding 'return (if (number? (M_int (cadr tree) state)) 
-                                                       (M_int (cadr tree) state) 
-                                                       (if (M_bool (cadr tree) state) 'true 'false))        ; maps #t/#f to true/false
-                                                   state))
-      ((isIf tree)                 (if (M_bool (cadr tree) state)
-                                       (M_state (caddr tree) state)
-                                       (if (null? (cdddr tree))
-                                           state
-                                           (M_state (cadddr tree) state))))    
-      ((isWhile tree)              (if (M_bool (cadr tree) state)
-                                       (M_state tree (M_state (caddr tree) state))
-                                       state)))))
+; TODO: add isBreak, isContinue, isThrow? Connamacher mentioned not to touch the current isIf and isWhile right now but I will watch the echo360 video again
+; add return to the parameter and add return to the beginning of each one? check if that works
 
-;M_int: takes an expression (can have subexpressions) and a state and returns a value -- pass on anything not related to ints to M_bool
-(define M_int
-  (lambda (tree state)
+; isBlock  -- call add_layer, process every statement, then call remove_layer
+; isBreak
+; isContinue
+; isThrow
+
+
+(define M_state
+  (lambda (stmt-list state)
     (cond
-      ((null? tree)                                       0)
-      ((number? tree)                                     tree)
-      ((not (pair? tree))                                 (get-value tree state));when atom/var name passed in
-      ((null? (cdr tree))                                 (M_int (car tree) state))
-      ((eq? '+ (operator tree))                           (+ (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((and (eq? '- (operator tree)) (null? (cddr tree))) (* -1 (M_int (firstoperand tree) state)))
-      ((eq? '- (operator tree))                           (- (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '* (operator tree))                           (* (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '/ (operator tree))                           (quotient (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '% (operator tree))                           (remainder (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      (else                                               (M_bool tree state)))))
+      ((null? stmt-list)                state)
+      ((list? (car stmt-list))          (M_state (cdr stmt-list) (M_state (first stmt-list) state)))
+      ((isDeclare stmt-list)            (if (null? (cddr stmt-list))
+                                            (create-binding (second stmt-list) '() state)
+                                            (create-binding (second stmt-list) (M_int (caddr stmt-list) state) state)))
+      ((isAssign stmt-list)             (update-binding (cadr stmt-list) (M_int (caddr stmt-list) state) state))  
+      ((isReturn stmt-list)             (update-binding 'return (if (number? (M_int (cadr stmt-list) state))
+                                                                    (M_int (cadr stmt-list) state)
+                                                                    (if (M_bool (cadr stmt-list) state) 'true 'false))        ; maps #t/#f to true/false
+                                                                    state))
+      ((isIf stmt-list)                 (if (M_bool (cadr stmt-list) state)
+                                            (M_state (caddr stmt-list) state)
+                                            (if (null? (cdddr stmt-list))
+                                                state
+                                                (M_state (cadddr stmt-list) state))))    
+      ((isWhile stmt-list)              (if (M_bool (cadr stmt-list) state)
+                                            (M_state stmt-list (M_state (caddr stmt-list) state))
+                                            state)))))
+
+; TODO: add M-block
+;     : I'll come up with a placeholder here
+
+; M_block: takes an expression (can have subexpressions) and a state --
+; what is it really doing? you are entering a block, adding a layer to the state when vars are declared in the block, checking for if and while loops in the block itself (nested?)
+;                          then once you get out of the block, you pop the layer off the state!
+; therefore: add funcions for adding a layer (add_layer) and popping a layer (pop_layer)
+
+; 2 ways to leave M_blovk: complete execution or because there is a break there
+
+; M_int: takes an expression (can have subexpressions) and a state and returns a value -- pass on anything not related to ints to M_bool
+(define M_int
+  (lambda (stmt-list state)
+    (cond
+      ((null? stmt-list)                                             0)
+      ((number? stmt-list)                                           stmt-list)
+      ((not (pair? stmt-list))                                       (get-value stmt-list state))                    ;when atom/var name passed in
+      ((null? (cdr stmt-list))                                       (M_int (car stmt-list) state))
+      ((eq? '+ (operator stmt-list))                                 (+ (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
+      ((and (eq? '- (operator stmt-list)) (null? (cddr stmt-list)))  (* -1 (M_int (firstoperand stmt-list) state)))
+      ((eq? '- (operator stmt-list))                                 (- (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
+      ((eq? '* (operator stmt-list))                                 (* (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
+      ((eq? '/ (operator stmt-list))                                 (quotient (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
+      ((eq? '% (operator stmt-list))                                 (remainder (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
+      (else                                                          (M_bool stmt-list state)))))
 
 ; M_bool: takes in a parse parse-tree, state and returns #t or #f
 (define M_bool
-  (lambda (tree state)
+  (lambda (stmt-list state)
     (cond
-      ((null? tree)              #f)
-      ((eq? 'true tree)          #t)
-      ((eq? 'false tree)         #f)
-      ((boolean? tree)           tree)
-      ((not (pair? tree))        (get-value tree state))
-      ((null? (cdr tree))        (M_bool (car tree) state))
-      ((eq? '&& (operator tree)) (and (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
-      ((eq? '|| (operator tree)) (or (M_bool (firstoperand tree) state) (M_bool (secondoperand tree) state)))
-      ((eq? '! (operator tree))  (not (M_bool (firstoperand tree) state)))
-      ((eq? '> (operator tree))  (> (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '< (operator tree))  (< (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '== (operator tree)) (= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '>= (operator tree)) (>= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '<= (operator tree)) (<= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state)))
-      ((eq? '!= (operator tree)) (not (= (M_int (firstoperand tree) state) (M_int (secondoperand tree) state))))
+      ((null? stmt-list)              #f)
+      ((eq? 'true stmt-list)          #t)
+      ((eq? 'false stmt-list)         #f)
+      ((boolean? stmt-list)           stmt-list)
+      ((not (pair? stmt-list))        (get-value stmt-list state))
+      ((null? (cdr stmt-list))        (M_bool (car stmt-list) state))
+      ((eq? '&& (operator stmt-list)) (and (M_bool (firstoperand stmt-list) state) (M_bool (secondoperand stmt-list) state)))
+      ((eq? '|| (operator stmt-list)) (or (M_bool (firstoperand stmt-list) state) (M_bool (secondoperand stmt-list) state)))
+      ((eq? '! (operator stmt-list))  (not (M_bool (firstoperand stmt-list) state)))
+      ((eq? '> (operator stmt-list))  (> (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
+      ((eq? '< (operator stmt-list))  (< (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
+      ((eq? '== (operator stmt-list)) (= (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
+      ((eq? '>= (operator stmt-list)) (>= (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
+      ((eq? '<= (operator stmt-list)) (<= (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
+      ((eq? '!= (operator stmt-list)) (not (= (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state))))
       (else (error 'bad-op "Invalid operator")))))
 
 ; ------------------------------------------------------------------------------------------------------------------------------------
@@ -134,6 +153,17 @@
       ((eq? var (caar state)) #t)
       (else                   (check-binding var (list (cdar state) (cdadr state)))))))
 
+; TODO: add functions -- add_layer and pop_layer
+
+(define add_layer
+  (lambda (state return)
+    (return (cons '(() ()) state))))
+
+(define pop_layer
+  (lambda (state return)
+    (return (cdr state))))  ; I think this is cdr state?? i might have to test this to see if that works
+
+
 
 ; ------------------------------------------------------------------------------------------------------------------------------------
 ; ------------------------------------------------------------------------------------------------------------------------------------
@@ -160,10 +190,12 @@
   (lambda (lis)
     (eq? 'while (car lis))))
 
+(define isBlock
+  (lambda (lis)
+    (eq? 'begin (car lis))))
+
 (define operator car)
-
 (define firstoperand cadr)
-
 (define secondoperand caddr)
 
 (define first car)
