@@ -194,6 +194,30 @@
   (lambda (lis)
     (eq? 'begin (car lis))))
 
+(define isBreak
+  (lambda (lis)
+    (eq? 'break (car lis))))
+
+(define isContinue
+  (lambda (lis)
+    (eq? 'continue (car lis))))
+
+(define isThrow
+  (lambda (lis)
+    (eq? 'throw (car lis))))
+
+(define isTry
+  (lambda (lis)
+    (eq? 'try (car lis))))
+
+(define isCatch
+  (lambda (lis)
+    (eq? 'catch (car lis))))
+
+(define isFinally
+  (lambda (lis)
+    (eq? 'finally (car lis))))
+
 (define operator car)
 (define firstoperand cadr)
 (define secondoperand caddr)
