@@ -140,10 +140,8 @@
   (lambda (var value state)
     (cond
       ((null? (var-sublist state))              (error "variable must be declared"));variable could not be found in state
-      ((eq? var (car (var-sublist state)))      (list (var-sublist state) (cons value (cdr (val-sublist state)))))
-      (else                                     (list
-                                                 (cons (car (var-sublist state)) (car (update-binding var value (list (cdr (var-sublist state)) (cdr (val-sublist state))))))
-                                                 (cons (car (val-sublist state)) (cadr (update-binding var value (list (cdr (var-sublist state)) (cdr (val-sublist state)))))))))))
+      ((eq? var (car (var-sublist state)))      (list (var-sublist state) (cons value (cdr (val-sublist state))))
+      (else                                     (update-binding var value (list (cdr (var-sublist state)) (cdr (val-sublist state)))))))))
 
 ;check-binding takes in var name, state and returns true if var already exists, false otherwise
 (define check-binding

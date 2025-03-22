@@ -1,11 +1,8 @@
-var x = 10;
-var y = 20;
-var z = 20 >= 10;
-if (!z || false)
-  z = !z;
-else
-  z = z;
-return z;
+var x = 0;
+var y = 10;
+while (x != y)
+x = x + 1;
+return x + y;
 
 
 

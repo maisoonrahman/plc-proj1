@@ -117,7 +117,7 @@
 ; ------------------------------------------------------------------------------------------------------------------------------------
 
 ; get-value: takes variable name and state function and finds the assigned value of the variable
-(define get-value;given variable name and state function, find the assigned value of the variable
+(define get-value        ;given variable name and state function, find the assigned value of the variable
   (lambda (var state)
     ;(displayln (format "get-value called with var: ~a, state: ~a" var state))  ; debugging
     (cond
