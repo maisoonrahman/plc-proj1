@@ -1,8 +1,10 @@
-var x = 0;
-var y = 10;
-while (x != y)
-x = x + 1;
-return x + y;
+var x = 10;
+{
+  var y = 2;
+  var z = x * y;
+  x = z;
+}
+return x;
 
 
 

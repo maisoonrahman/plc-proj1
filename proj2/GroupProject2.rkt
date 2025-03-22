@@ -16,7 +16,7 @@
 
 (define run
   (lambda ()
-    (get-value 'return (M_state-cps (parser "Input.rkt") '((return) (0)) (lambda (v) v)))))
+    (get-value 'return (M_state-cps (parser "Input.rkt") '((return) (0))))))
 
 ;in order to be able to see what the parser will output
 (define parse
@@ -63,24 +63,30 @@
                                                (M_state stmt-list (M_state (caddr stmt-list) state))
                                             state))))) |#
 
+
+
+
+;;; problem: we have an issue here where the interpreter knows there's a block but then automatically exits the block without parsing the var declaratuons and assignements in it.
+;;; so it goes to state in line 77 then goes directly to line 87 without going to handle-block. 
+
+
 (define M_state-cps
-  (lambda (stmts state k)
+  (lambda (stmts state)
     (cond
-      ((null? stmts) (k state))
-      ((list? (car stmts))
-       (M_state-cps (car stmts) state
-         (lambda (result)
-           (cond
-             ((or (eq? result 'BREAK) (eq? result 'CONTINUE)
-                  (and (pair? result) (eq? (car result) 'THROW)))
-              result)
-             (else (M_state-cps (cdr stmts) result k))))))
-      ((isBreak (car stmts)) (handle-break state k))
-      ((isContinue (car stmts)) (handle-continue state k))
-      ((isThrow (car stmts)) (handle-throw (car stmts) state k))
-      ((isTry (car stmts)) (handle-try (car stmts) state k))
-      ((isBlock (car stmts)) (handle-block (cdr (car stmts)) state k))
-      (else (k state)))))
+      ((null? stmts)          state)
+      ((list? (car stmts))    (M_state-cps (cdr stmts) (M_state-cps (first stmts) state)))  ;; where the problem occurs
+      ((isDeclare stmts)  (handle-declare stmts state))
+      ((isAssign stmts)   (handle-assign stmts state))
+      ((isReturn stmts)    (handle-return stmts state))
+      ((isIf stmts)       (handle-if stmts state))
+      ;((isBreak (car stmts))  (handle-break state k))
+      ;((isContinue (car stmts)) (handle-continue state k))
+      ;((isThrow (car stmts)) (handle-throw (car stmts) state k))
+      ;((isTry (car stmts)) (handle-try (car stmts) state k))
+      ((isBlock (car stmts)) (handle-block stmts state))
+      (else state))))
+
+
 ; -----------------------------------------------
 ; Handlers for statement types
 ; -----------------------------------------------
@@ -117,34 +123,36 @@
         state)))
 
 (define handle-block
-  (lambda (stmts state return)
-    (M_state-cps stmts (add-layer state) (lambda (v) (return (pop-layer v))))))
+   (lambda (stmts state return)
+    (pop-layer (M_state-cps (cdr stmts) (add-layer state) return)))) 
 
-(define handle-break
-  (lambda (state)
-    'BREAK))
 
-(define handle-continue
-  (lambda (state)
-    'CONTINUE))
-
-(define handle-throw
-  (lambda (stmt state)
-    (cons 'THROW (cdr stmt))))
-
-(define handle-try
-  (lambda (stmt state)
-    (cond
-      ((null? stmt) state)
-      (else
+    
+#| (define handle-break
+     (lambda (state)
+       'BREAK))
+   
+   (define handle-continue
+     (lambda (state)
+       'CONTINUE))
+   
+   (define handle-throw
+     (lambda (stmt state)
+       (cons 'THROW (cdr stmt))))
+   
+   (define handle-try
+     (lambda (stmt state)
        (cond
-         ((and (pair? (M_state-cps (cadr stmt) (add-layer state)))
-               (eq? 'THROW (car (M_state-cps (cadr stmt) (add-layer state)))))
+         ((null? stmt) state)
+         (else
           (cond
-            ((eq? 'BREAK (M_state-cps (caddr stmt) (add-layer state))) 'BREAK)
-            ((eq? 'CONTINUE (M_state-cps (caddr stmt) (add-layer state))) 'CONTINUE)
-            (else (M_state-cps (caddr stmt) (add-layer state)))))
-         (else (M_state-cps (cadr stmt) (add-layer state))))))))
+            ((and (pair? (M_state-cps (cadr stmt) (add-layer state)))
+                  (eq? 'THROW (car (M_state-cps (cadr stmt) (add-layer state)))))
+             (cond
+               ((eq? 'BREAK (M_state-cps (caddr stmt) (add-layer state))) 'BREAK)
+               ((eq? 'CONTINUE (M_state-cps (caddr stmt) (add-layer state))) 'CONTINUE)
+               (else (M_state-cps (caddr stmt) (add-layer state)))))
+         (else (M_state-cps (cadr stmt) (add-layer state)))))))) |#
 
 
 
@@ -199,17 +207,6 @@
 ; ------------------------------------------------------------------------------------------------------------------------------------
 ; ------------------------------------------------------------------------------------------------------------------------------------
 
-#| ; get-value: takes variable name and state function and finds the assigned value of the variable
-   (define get-value        ;given variable name and state function, find the assigned value of the variable
-     (lambda (var state)
-       (displayln (format "get-value called with var: ~a, state: ~a" var state))  ; debugging
-       (cond
-         ((number? var)                                      var)
-         ((boolean? var)                                     var)
-         ((null? (car state))                                (error "variable could not be found"))
-         ((and (eq? var (caar state)) (null? (caadr state))) (error "variable was not initialized"))
-         ((eq? var (caar state))                             (caadr state))
-      (else                                               (get-value var (list (cdar state) (cdadr state))))))) |#
 
 (define search-value
   (lambda (var var-sublist val-sublist)
@@ -233,10 +230,7 @@
     (cond
       ((check-binding var state) (error "variable already declared in this block"))
       (else (cons (cons var (var-sublist state)) (cons (cons value (val-sublist state)) (cddr state)))))))
-;; idk if this is correct or not gotta test this
 
-
-; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
 ; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
 (define update-binding
   (lambda (var value state)
@@ -246,6 +240,7 @@
       (else                                     (list
                                                  (cons (car (var-sublist state)) (car (update-binding var value (list (cdr (var-sublist state)) (cdr (val-sublist state))))))
                                                  (cons (car (val-sublist state)) (cadr (update-binding var value (list (cdr (var-sublist state)) (cdr (val-sublist state)))))))))))
+
 ;check-binding takes in var name, state and returns true if var already exists, false otherwise
 (define check-binding
   (lambda (var state)
@@ -254,26 +249,17 @@
       ((eq? var (caar state)) #t)
       (else                   (check-binding var (list (cdar state) (cdadr state)))))))
 
-; if var-sublist is empty then return false
-; if var-sublist has the value then return true
-; else recursively call the function
-
-; if we want to think of layers:
-; if var-sublist is empty then return false
-; 
-
 
 
 ; TODO: add functions -- add_layer and pop_layer
 
 (define add-layer
-  (lambda (state return)
-    (return (cons '(() ()) state))))
+  (lambda (state)
+     (cons '() (cons '() state))))
 
 (define pop-layer
-  (lambda (state return)
-    (return (cdr state)))) 
-
+  (lambda (state)
+    (cdr state))) 
 
 
 ; ------------------------------------------------------------------------------------------------------------------------------------
@@ -311,7 +297,7 @@
 
 (define isContinue
   (lambda (stmt)
-    (and (pair? stmt) (eq? 'continue (car stmt)))))
+    (or (pair? stmt) (eq? 'continue (car stmt)))))
 
 (define isThrow
   (lambda (stmt)
