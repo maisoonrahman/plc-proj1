@@ -67,7 +67,8 @@
 
 
 ;;; problem: we have an issue here where the interpreter knows there's a block but then automatically exits the block without parsing the var declaratuons and assignements in it.
-;;; so it goes to state in line 77 then goes directly to line 87 without going to handle-block. 
+;;; so it goes to state in line 77 then goes directly to line 87 without going to handle-block.
+;it calculates a new state, and then just discards it?? so confused
 
 
 (define M_state-cps
@@ -229,11 +230,7 @@
       (else (cons (cons var (var-sublist state)) (cons (cons value (val-sublist state)) (cddr state)))))))
 
 ; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
-;needs to add the discarded data back on during the else
-;will require another function to be made methinks
-;otherwise the logic is sound
-;part of me thinks we should make it tail recursive to do that, it could lowk be easier
-;only this funcction would need to be
+;im pretty sure this works but it just gets discarded when it goes back to M_state??
 (define update-binding-cps
   (lambda (var val state return)
     (cond
