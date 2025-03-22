@@ -74,7 +74,8 @@
   (lambda (stmts state)
     (cond
       ((null? stmts)          state)
-      ((list? (car stmts))    (M_state-cps (cdr stmts) (M_state-cps (first stmts) state)))  ;; where the problem occurs
+      ((list? (car stmts))    (M_state-cps (cdr stmts) (M_state-cps (first stmts) state)))  ;; where the problem occurs;i also tracked a problem to here
+      
       ((isDeclare stmts)  (handle-declare stmts state))
       ((isAssign stmts)   (handle-assign stmts state))
       ((isReturn stmts)    (handle-return stmts state))
@@ -83,7 +84,7 @@
       ;((isContinue (car stmts)) (handle-continue state k))
       ;((isThrow (car stmts)) (handle-throw (car stmts) state k))
       ;((isTry (car stmts)) (handle-try (car stmts) state k))
-      ((isBlock (car stmts)) (handle-block stmts state))
+      ((isBlock stmts) (handle-block stmts state (lambda (v) v)))
       (else state))))
 
 
@@ -124,7 +125,7 @@
 
 (define handle-block
    (lambda (stmts state return)
-    (pop-layer (M_state-cps (cdr stmts) (add-layer state) return)))) 
+    (pop-layer (M_state-cps (cdr stmts) (add-layer state))))) 
 
 
     
@@ -207,19 +208,15 @@
 ; ------------------------------------------------------------------------------------------------------------------------------------
 ; ------------------------------------------------------------------------------------------------------------------------------------
 
-
-(define search-value
-  (lambda (var var-sublist val-sublist)
-    (cond
-      ((null? var-sublist) (error "variable was not initialized"))
-      ((and (eq? var (car var-sublist)) (null? (car val-sublist))) (error "variable was not assigned"))
-      ((eq? var (car var-sublist)) (car val-sublist))
-      (else (search-value var (cdr var-sublist) (cdr val-sublist))))))
-
 (define get-value
   (lambda (var state)
-    (displayln (format "get-value called with var: ~a, state: ~a" var state))
-    (search-value var (var-sublist state) (val-sublist state))))
+    (cond
+      ((null? state) (error "variable not found"))
+      ((null? (car state)) (get-value var (cddr state)))
+      ((eq? var (caar state)) (if (eq? '() (caadr state))
+                                  (error "variable not initialized")
+                                  (caadr state)))
+      (else (get-value var (cons (cdar state) (cons (cdadr state) (cddr state))))))))
 
  
 
@@ -232,14 +229,29 @@
       (else (cons (cons var (var-sublist state)) (cons (cons value (val-sublist state)) (cddr state)))))))
 
 ; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
-(define update-binding
-  (lambda (var value state)
+;needs to add the discarded data back on during the else
+;will require another function to be made methinks
+;otherwise the logic is sound
+;part of me thinks we should make it tail recursive to do that, it could lowk be easier
+;only this funcction would need to be
+(define update-binding-cps
+  (lambda (var val state return)
     (cond
-      ((null? (var-sublist state))              (error "variable must be declared"));variable could not be found in state
-      ((eq? var (car (var-sublist state)))      (list (var-sublist state) (cons value (cdr (val-sublist state)))))
-      (else                                     (list
-                                                 (cons (car (var-sublist state)) (car (update-binding var value (list (cdr (var-sublist state)) (cdr (val-sublist state))))))
-                                                 (cons (car (val-sublist state)) (cadr (update-binding var value (list (cdr (var-sublist state)) (cdr (val-sublist state)))))))))))
+      ((null? state) (error "variable must be declared"))
+      ((null? (car state)) (update-binding-cps var val (cddr state) (lambda (v) (return (cons '() (cons '() v))))))
+      ((eq? var (caar state)) (return (cons (car state) (cons (cons val (cdadr state)) (cddr state)))))
+      (else (update-binding-cps var val (cons (cdar state) (cons (cdadr state) (cddr state)))
+                                (lambda (v) (return (cons (cons (caar state) (car v)) (cons (cons (caadr state) (cadr v)) (cddr state))))))))))
+    
+(define update-binding
+  (lambda (var val state)
+    (update-binding-cps var val state (lambda (v) v))))
+    #|(cond
+      ((null? state) (error "variable must be declared"))
+      ((null? (car state)) (update-binding var val (cddr state)))
+      ((eq? var (caar state)) (cons (car state) (cons (cons val (cdadr state)) (cddr state))))
+      (else (update-binding var val (cons (cdar state) (cons (cdadr state) (cddr state))))))))|#
+    
 
 ;check-binding takes in var name, state and returns true if var already exists, false otherwise
 (define check-binding
@@ -259,7 +271,7 @@
 
 (define pop-layer
   (lambda (state)
-    (cdr state))) 
+    state)) 
 
 
 ; ------------------------------------------------------------------------------------------------------------------------------------
@@ -289,7 +301,7 @@
 
 (define isBlock
   (lambda (stmt)
-    (and (pair? stmt)(eq? 'begin (car stmt)))))
+    (and (pair? stmt) (eq? 'begin (car stmt)))))
 
 (define isBreak
   (lambda (stmt)
