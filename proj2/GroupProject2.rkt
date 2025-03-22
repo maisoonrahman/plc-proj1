@@ -16,7 +16,7 @@
 
 (define run
   (lambda ()
-    (get-value 'return (M_state (parser "Input.rkt") '((return) (0))))))
+    (get-value 'return (M_state-cps (parser "Input.rkt") '((return) (0)) (lambda (v) v)))))
 
 ;in order to be able to see what the parser will output
 (define parse
@@ -41,30 +41,113 @@
 ; isThrow
 
 
-(define M_state
-  (lambda (stmt-list state)
-    (cond
-      ((null? stmt-list)                state)
-      ((list? (car stmt-list))          (M_state (cdr stmt-list) (M_state (first stmt-list) state)))
-      ((isDeclare stmt-list)            (if (null? (cddr stmt-list))
-                                            (create-binding (second stmt-list) '() state)
-                                            (create-binding (second stmt-list) (M_int (caddr stmt-list) state) state)))
-      ((isAssign stmt-list)             (update-binding (cadr stmt-list) (M_int (caddr stmt-list) state) state))  
-      ((isReturn stmt-list)             (update-binding 'return (if (number? (M_int (cadr stmt-list) state))
-                                                                    (M_int (cadr stmt-list) state)
-                                                                    (if (M_bool (cadr stmt-list) state) 'true 'false))        ; maps #t/#f to true/false
-                                                                    state))
-      ((isIf stmt-list)                 (if (M_bool (cadr stmt-list) state)
-                                            (M_state (caddr stmt-list) state)
-                                            (if (null? (cdddr stmt-list))
-                                                state
-                                                (M_state (cadddr stmt-list) state))))    
-      ((isWhile stmt-list)              (if (M_bool (cadr stmt-list) state)
-                                            (M_state stmt-list (M_state (caddr stmt-list) state))
-                                            state)))))
+#| (define M_state
+     (lambda (stmt-list state)
+       (cond
+         ((null? stmt-list)                state)
+         ((list? (car stmt-list))          (M_state (cdr stmt-list) (M_state (first stmt-list) state)))
+         ((isDeclare stmt-list)            (if (null? (cddr stmt-list))
+                                               (create-binding (second stmt-list) '() state)
+                                               (create-binding (second stmt-list) (M_int (caddr stmt-list) state) state)))
+         ((isAssign stmt-list)             (update-binding (cadr stmt-list) (M_int (caddr stmt-list) state) state))  
+         ((isReturn stmt-list)             (update-binding 'return (if (number? (M_int (cadr stmt-list) state))
+                                                                       (M_int (cadr stmt-list) state)
+                                                                       (if (M_bool (cadr stmt-list) state) 'true 'false))        ; maps #t/#f to true/false
+                                                                       state))
+         ((isIf stmt-list)                 (if (M_bool (cadr stmt-list) state)
+                                               (M_state (caddr stmt-list) state)
+                                               (if (null? (cdddr stmt-list))
+                                                   state
+                                                   (M_state (cadddr stmt-list) state))))    
+         ((isWhile stmt-list)              (if (M_bool (cadr stmt-list) state)
+                                               (M_state stmt-list (M_state (caddr stmt-list) state))
+                                            state))))) |#
 
-; TODO: add M-block
-;     : I'll come up with a placeholder here
+(define M_state-cps
+  (lambda (stmts state k)
+    (cond
+      ((null? stmts) (k state))
+      ((list? (car stmts))
+       (M_state-cps (car stmts) state
+         (lambda (result)
+           (cond
+             ((or (eq? result 'BREAK) (eq? result 'CONTINUE)
+                  (and (pair? result) (eq? (car result) 'THROW)))
+              result)
+             (else (M_state-cps (cdr stmts) result k))))))
+      ((isBreak (car stmts)) (handle-break state k))
+      ((isContinue (car stmts)) (handle-continue state k))
+      ((isThrow (car stmts)) (handle-throw (car stmts) state k))
+      ((isTry (car stmts)) (handle-try (car stmts) state k))
+      ((isBlock (car stmts)) (handle-block (cdr (car stmts)) state k))
+      (else (k state)))))
+; -----------------------------------------------
+; Handlers for statement types
+; -----------------------------------------------
+
+(define handle-declare
+  (lambda (stmt state)
+    (if (null? (cddr stmt))
+        (create-binding (second stmt) '() state)
+        (create-binding (second stmt) (M_int (caddr stmt) state) state))))
+
+(define handle-assign
+  (lambda (stmt state)
+    (update-binding (cadr stmt) (M_int (caddr stmt) state) state)))
+
+(define handle-return
+  (lambda (stmt state)
+    (update-binding 'return
+                    (if (number? (M_int (second stmt) state))
+                        (M_int (second stmt) state)
+                        (if (M_bool (second stmt) state) 'true 'false))
+                    state)))
+(define handle-if
+  (lambda (stmt state)
+    (if (M_bool (cadr stmt) state)
+        (M_state-cps (caddr stmt) state)
+        (if (null? (cdddr stmt))
+            state
+            (M_state-cps (cadddr stmt) state)))))
+
+(define handle-while
+  (lambda (stmt state)
+    (if (M_bool (cadr stmt) state)
+        (M_state-cps stmt (M_state-cps (caddr stmt) state))
+        state)))
+
+(define handle-block
+  (lambda (stmts state return)
+    (M_state-cps stmts (add-layer state) (lambda (v) (return (pop-layer v))))))
+
+(define handle-break
+  (lambda (state)
+    'BREAK))
+
+(define handle-continue
+  (lambda (state)
+    'CONTINUE))
+
+(define handle-throw
+  (lambda (stmt state)
+    (cons 'THROW (cdr stmt))))
+
+(define handle-try
+  (lambda (stmt state)
+    (cond
+      ((null? stmt) state)
+      (else
+       (cond
+         ((and (pair? (M_state-cps (cadr stmt) (add-layer state)))
+               (eq? 'THROW (car (M_state-cps (cadr stmt) (add-layer state)))))
+          (cond
+            ((eq? 'BREAK (M_state-cps (caddr stmt) (add-layer state))) 'BREAK)
+            ((eq? 'CONTINUE (M_state-cps (caddr stmt) (add-layer state))) 'CONTINUE)
+            (else (M_state-cps (caddr stmt) (add-layer state)))))
+         (else (M_state-cps (cadr stmt) (add-layer state))))))))
+
+
+
 
 ; M_block: takes an expression (can have subexpressions) and a state --
 ; what is it really doing? you are entering a block, adding a layer to the state when vars are declared in the block, checking for if and while loops in the block itself (nested?)
@@ -116,35 +199,53 @@
 ; ------------------------------------------------------------------------------------------------------------------------------------
 ; ------------------------------------------------------------------------------------------------------------------------------------
 
-; get-value: takes variable name and state function and finds the assigned value of the variable
-(define get-value        ;given variable name and state function, find the assigned value of the variable
-  (lambda (var state)
-    ;(displayln (format "get-value called with var: ~a, state: ~a" var state))  ; debugging
+#| ; get-value: takes variable name and state function and finds the assigned value of the variable
+   (define get-value        ;given variable name and state function, find the assigned value of the variable
+     (lambda (var state)
+       (displayln (format "get-value called with var: ~a, state: ~a" var state))  ; debugging
+       (cond
+         ((number? var)                                      var)
+         ((boolean? var)                                     var)
+         ((null? (car state))                                (error "variable could not be found"))
+         ((and (eq? var (caar state)) (null? (caadr state))) (error "variable was not initialized"))
+         ((eq? var (caar state))                             (caadr state))
+      (else                                               (get-value var (list (cdar state) (cdadr state))))))) |#
+
+(define search-value
+  (lambda (var var-sublist val-sublist)
     (cond
-      ((number? var)                                      var)
-      ((boolean? var)                                     var)
-      ((null? (car state))                                (error "variable could not be found"))
-      ((and (eq? var (caar state)) (null? (caadr state))) (error "variable was not initialized"))
-      ((eq? var (caar state))                             (caadr state))
-      (else                                               (get-value var (list (cdar state) (cdadr state)))))))
+      ((null? var-sublist) (error "variable was not initialized"))
+      ((and (eq? var (car var-sublist)) (null? (car val-sublist))) (error "variable was not assigned"))
+      ((eq? var (car var-sublist)) (car val-sublist))
+      (else (search-value var (cdr var-sublist) (cdr val-sublist))))))
+
+(define get-value
+  (lambda (var state)
+    (displayln (format "get-value called with var: ~a, state: ~a" var state))
+    (search-value var (var-sublist state) (val-sublist state))))
+
  
 
 ; create-binding: takes a variable name, value, and state function and will return a state that contains the binding  -- checks for a variable already existing or not
+; TODO: handles top layers:
 (define create-binding
   (lambda (var value state)
-    (if (check-binding var state)
-        (error "variable already exists")
-        (list (cons var (car state)) (cons value (cadr state))))))
+    (cond
+      ((check-binding var state) (error "variable already declared in this block"))
+      (else (cons (cons var (var-sublist state)) (cons (cons value (val-sublist state)) (cddr state)))))))
+;; idk if this is correct or not gotta test this
 
 
+; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
 ; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
 (define update-binding
   (lambda (var value state)
     (cond
-      ((null? (car state))    (error "variable must be declared"));variable could not be found in state
-      ((eq? var (caar state)) (list (car state) (cons value (cdadr state))))
-      (else                   (update-binding var value (list (cdar state) (cdadr state)))))))
-
+      ((null? (var-sublist state))              (error "variable must be declared"));variable could not be found in state
+      ((eq? var (car (var-sublist state)))      (list (var-sublist state) (cons value (cdr (val-sublist state)))))
+      (else                                     (list
+                                                 (cons (car (var-sublist state)) (car (update-binding var value (list (cdr (var-sublist state)) (cdr (val-sublist state))))))
+                                                 (cons (car (val-sublist state)) (cadr (update-binding var value (list (cdr (var-sublist state)) (cdr (val-sublist state)))))))))))
 ;check-binding takes in var name, state and returns true if var already exists, false otherwise
 (define check-binding
   (lambda (var state)
@@ -153,15 +254,25 @@
       ((eq? var (caar state)) #t)
       (else                   (check-binding var (list (cdar state) (cdadr state)))))))
 
+; if var-sublist is empty then return false
+; if var-sublist has the value then return true
+; else recursively call the function
+
+; if we want to think of layers:
+; if var-sublist is empty then return false
+; 
+
+
+
 ; TODO: add functions -- add_layer and pop_layer
 
-(define add_layer
+(define add-layer
   (lambda (state return)
     (return (cons '(() ()) state))))
 
-(define pop_layer
+(define pop-layer
   (lambda (state return)
-    (return (cdr state))))  ; I think this is cdr state?? i might have to test this to see if that works
+    (return (cdr state)))) 
 
 
 
@@ -191,32 +302,32 @@
     (eq? 'while (car lis))))
 
 (define isBlock
-  (lambda (lis)
-    (eq? 'begin (car lis))))
+  (lambda (stmt)
+    (and (pair? stmt)(eq? 'begin (car stmt)))))
 
 (define isBreak
-  (lambda (lis)
-    (eq? 'break (car lis))))
+  (lambda (stmt)
+    (and (pair? stmt) (eq? 'break (car stmt)))))
 
 (define isContinue
-  (lambda (lis)
-    (eq? 'continue (car lis))))
+  (lambda (stmt)
+    (and (pair? stmt) (eq? 'continue (car stmt)))))
 
 (define isThrow
-  (lambda (lis)
-    (eq? 'throw (car lis))))
+  (lambda (stmt)
+    (and (pair? stmt) (eq? 'throw (car stmt)))))
 
 (define isTry
-  (lambda (lis)
-    (eq? 'try (car lis))))
+  (lambda (stmt)
+    (and (pair? stmt) (eq? 'try (car stmt)))))
 
 (define isCatch
-  (lambda (lis)
-    (eq? 'catch (car lis))))
+  (lambda (stmt)
+    (and (pair? stmt) (eq? 'catch (car stmt)))))
 
 (define isFinally
-  (lambda (lis)
-    (eq? 'finally (car lis))))
+  (lambda (stmt)
+    (and (pair? stmt) (eq? 'finally (car stmt)))))
 
 (define operator car)
 (define firstoperand cadr)
@@ -226,6 +337,9 @@
 (define second cadr)
 (define third caddr)
 (define fourth cadddr)
+
+(define var-sublist car)
+(define val-sublist cadr)
 
 ; TODO: add abstraction for state sublists
 ; TODO: add abstraction for parse tree too maybe, it might help with figuring out different branches and nodes
