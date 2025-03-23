@@ -66,12 +66,8 @@
 
 
 
-;;; problem: we have an issue here where the interpreter knows there's a block but then automatically exits the block without parsing the var declaratuons and assignements in it.
-;;; so it goes to state in line 77 then goes directly to line 87 without going to handle-block.
-;it calculates a new state, and then just discards it?? so confused
 
-
-(define M_state-cps
+(define M_state-cps   ;; same issue here where list? check and isBlock are causing issues idk why tho
   (lambda (stmts state)
     (cond
       ((null? stmts)          state)
@@ -124,9 +120,20 @@
         (M_state-cps stmt (M_state-cps (caddr stmt) state))
         state)))
 
-(define handle-block
+(define handle-block   ;; rewritten to consider the whole thing as a block
    (lambda (stmts state return)
-    (pop-layer (M_state-cps (cdr stmts) (add-layer state))))) 
+    (cond
+      ((eq? (caar stmts) 'while) (handle-while (car stmts) state))
+      ((eq? (caar stmts) 'if) (handle-if (car stmts) state))
+      (else (M_state-cps (cdr stmts) (M_state-cps (car stmts) state)))))) ;; using this allows the handle-if to be accessed through handle-block but not through M_state??
+
+#| (define handle-block
+      (lambda (stmts state return)
+       (pop-layer (M_state-cps (cdr stmts) (add-layer state)))))
+ |#
+
+
+      
 
 
     
