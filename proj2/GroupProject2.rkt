@@ -16,7 +16,7 @@
 
 (define run
   (lambda ()
-    (get-value 'return (M_state-cps (parser "Input.rkt") '((return) (0)) (lambda (v) v) (lambda (v) v) (lambda (v) v)))))
+    (get-value 'return (M_state-cps (parser "Input.rkt") '((return) (0)) (lambda (v) v) (lambda (v) v) (lambda (v) v) (lambda (v) v) (lambda (v) v) (lambda (v) v)))))
 
 ;in order to be able to see what the parser will output
 (define parse
@@ -42,19 +42,19 @@
 
 ;end will terminate the program, break will only pop out one layer
 (define M_state-cps
-  (lambda (stmts state return break end)
+  (lambda (stmts state return break continue throw finally end)
     (cond
       ((null? stmts)       (return state))
-      ((list? (car stmts)) (M_state-cps (first stmts) state (lambda (v1) (M_state-cps (cdr stmts) v1 (lambda (v2) (return v2)) break end)) break end))
+      ((list? (car stmts)) (M_state-cps (first stmts) state (lambda (v1) (M_state-cps (cdr stmts) v1 (lambda (v2) (return v2)) break continue throw finally end)) break continue throw finally end))
       ((isDeclare stmts)   (handle-declare stmts state (lambda (v) (return v))))
       ((isAssign stmts)    (handle-assign stmts state (lambda (v) (return v))))
       ((isReturn stmts)    (end (handle-return stmts state)))
-      ((isIf stmts)        (handle-if stmts state (lambda (v) (return v)) break end))
-      ((isWhile stmts)     (start-while stmts state (lambda (v) (return v)) break end))
+      ((isIf stmts)        (handle-if stmts state (lambda (v) (return v)) break continue end))
+      ((isWhile stmts)     (start-while stmts state (lambda (v) (return v)) break continue end))
       ((isBreak stmts)     (handle-break state break))
-      ;((isContinue (car stmts)) (handle-continue state k))
-      ;((isThrow (car stmts)) (handle-throw (car stmts) state k))
-      ;((isTry (car stmts)) (handle-try (car stmts) state k))
+      ((isContinue (car stmts)) (handle-continue state continue))
+      ((isTry (car stmts)) (handle-try (car stmts) state return break continue throw end))
+      ((isThrow (car stmts)) (handle-throw (car stmts) state throw))
       ((isBlock stmts) (handle-block stmts state (lambda (v) (return v)) end))
       (else (return state)))))
 
@@ -82,60 +82,66 @@
                     state)))
 
 (define handle-if
-  (lambda (stmt state return break end)
+  (lambda (stmt state return break continue end)
     (if (M_bool (cadr stmt) state)
-        (M_state-cps (caddr stmt) state (lambda (v) (return v)) break end)
+        (M_state-cps (caddr stmt) state (lambda (v) (return v)) break continue end)
         (if (null? (cdddr stmt))
             (return state)
-            (M_state-cps (cadddr stmt) state (lambda (v) (return v)) break end)))))
+            (M_state-cps (cadddr stmt) state (lambda (v) (return v)) break continue end)))))
 
-#|(define handle-while
-  (lambda (stmt state return break end)
-    (if (M_bool (cadr stmt) state)
-        (
-    (if (M_bool (cadr stmt) state)
-        (M_state-cps (caddr stmt) state (lambda (v1) (handle-while stmt v1 (lambda (v2) (return v2)) break end)) break end)
-        (return state))))|#
+
 (define start-while
-  (lambda (stmt state return break end)
+  (lambda (stmt state return break continue end)
     (if (eq? 'begin (caaddr stmt))
-      (recurse-while (cadr stmt) (cdaddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end)
-      (recurse-while (cadr stmt) (caddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end))))
+      (recurse-while (cadr stmt) (cdaddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end)
+      (recurse-while (cadr stmt) (caddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end))))
+
 (define recurse-while
-  (lambda (condition instructions state return break end)
+  (lambda (condition body state return break continue end)
     (if (M_bool condition state)
-        (M_state-cps instructions state (lambda (v1) (recurse-while instructions v1 (lambda (v2) (return v2)) break end)) break end)
+        (M_state-cps body state (lambda (v1) (recurse-while condition body v1 (lambda (v2) (return v2)) break continue end)) break continue end)
         (return state))))
 
  (define handle-block
       (lambda (stmts state return end)
-        (M_state-cps (cdr stmts) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end)))
+        (M_state-cps (cdr stmts) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end)))
     
 (define handle-break
      (lambda (state break)
        (break state)))
-   
-#|   (define handle-continue
-     (lambda (state)
-       'CONTINUE))
-   
-   (define handle-throw
-     (lambda (stmt state)
-       (cons 'THROW (cdr stmt))))
-   
-   (define handle-try
-     (lambda (stmt state)
-       (cond
-         ((null? stmt) state)
-         (else
-          (cond
-            ((and (pair? (M_state-cps (cadr stmt) (add-layer state)))
-                  (eq? 'THROW (car (M_state-cps (cadr stmt) (add-layer state)))))
-             (cond
-               ((eq? 'BREAK (M_state-cps (caddr stmt) (add-layer state))) 'BREAK)
-               ((eq? 'CONTINUE (M_state-cps (caddr stmt) (add-layer state))) 'CONTINUE)
-               (else (M_state-cps (caddr stmt) (add-layer state)))))
-         (else (M_state-cps (cadr stmt) (add-layer state)))))))) |#
+
+(define handle-continue
+     (lambda (state continue)
+       (continue state)))
+
+(define handle-throw
+  (lambda (stmt state throw)
+    (throw (M_int (cadr stmt) state) state)))
+
+(define handle-try
+  (lambda (stmt state return break continue throw end)
+    (M_state-cps ((try-body stmt) (add-layer state) (lambda (v) (run-finally (finally-body stmt) (pop-layer v) return break continue throw end)) break continue
+                 (lambda (v1 v2) (run-catch (catch-var stmt) (catch-body stmt) v1 v2 return break continue throw end (finally-body stmt)))
+                 end))))
+                 
+
+(define run-finally
+  (lambda (finally-body final-state return break continue throw end)
+    (M_state-cps finally-body (add-layer final-state)
+                 (lambda (v) (return (pop-layer v))) break continue throw end)))
+
+(define run-catch
+  (lambda (catch-var catch-body throw-val throw-state return break continue throw end finally-body)
+    (M_state-cps catch-body (create-binding catch-var throw-val (add-layer throw-state))
+                 (lambda (v) (run-finally finally-body (pop-layer v) return break continue throw end)) break continue throw end)))
+
+; abstractions for handle-try:
+(define try-body cadr)
+(define catch-block caddr)
+(define catch-var caadr)
+(define catch-body cdadr)
+(define finally-body cadddr)
+
 
 ; M_int: takes an expression (can have subexpressions) and a state and returns a value -- pass on anything not related to ints to M_bool
 (define M_int
@@ -302,7 +308,7 @@
 
 (define isContinue
   (lambda (stmt)
-    (or (pair? stmt) (eq? 'continue (car stmt)))))
+    (and (pair? stmt) (eq? 'continue (car stmt)))))
 
 (define isThrow
   (lambda (stmt)
@@ -310,7 +316,7 @@
 
 (define isTry
   (lambda (stmt)
-    (and (pair? stmt) (eq? 'try (car stmt)))))
+    (or (pair? stmt) (eq? 'try (car stmt)))))
 
 (define isCatch
   (lambda (stmt)
