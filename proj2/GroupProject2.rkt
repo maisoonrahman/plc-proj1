@@ -231,15 +231,40 @@
 
 ; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
 ;im pretty sure this works but it just gets discarded when it goes back to M_state??
+#| (define update-binding-cps
+     (lambda (var val state return)
+       (cond
+         ((null? state) (error "variable must be declared"))
+         ((null? (car state)) (update-binding-cps var val (cddr state) (lambda (v) (return (cons '() (cons '() v))))))
+         ((eq? var (caar state)) (return (cons (car state) (cons (cons val (cdadr state)) (cddr state)))))
+         (else (update-binding-cps var val (cons (cdar state) (cons (cdadr state) (cddr state)))
+                                   (lambda (v) (return (cons (cons (caar state) (car v)) (cons (cons (caadr state) (cadr v)) (cddr state))))))))))
+     |#
+
+(define var-in-top-layer?
+  (lambda (var varlist)
+    (cond
+      [(null? varlist) #f]
+      [(eq? var (car varlist)) #t]
+      [else (var-in-top-layer? var (cdr varlist))])))
+
+(define update-val
+  (lambda (var val varlist vallist)
+    (cond
+      [(null? varlist) '()] ; shouldn't happen if var was found
+      [(eq? var (car varlist)) (cons val (cdr vallist))]
+      [else (cons (car vallist)
+                  (update-val var val (cdr varlist) (cdr vallist)))])))
+
+
 (define update-binding-cps
   (lambda (var val state return)
     (cond
-      ((null? state) (error "variable must be declared"))
-      ((null? (car state)) (update-binding-cps var val (cddr state) (lambda (v) (return (cons '() (cons '() v))))))
-      ((eq? var (caar state)) (return (cons (car state) (cons (cons val (cdadr state)) (cddr state)))))
-      (else (update-binding-cps var val (cons (cdar state) (cons (cdadr state) (cddr state)))
-                                (lambda (v) (return (cons (cons (caar state) (car v)) (cons (cons (caadr state) (cadr v)) (cddr state))))))))))
-    
+      ((null? state) (error "var must be declare"))
+      ((var-in-top-layer? var (car state)) (return (cons (car state) (cons (update-val var val (car state) (cadr state)) (cddr state)))))
+      (else (update-binding-cps var val (cddr state) (lambda (v) (return (cons (car state) (cons (cadr state) v)))))))))
+
+
 (define update-binding
   (lambda (var val state)
     (update-binding-cps var val state (lambda (v) v))))
