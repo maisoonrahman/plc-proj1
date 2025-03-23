@@ -16,7 +16,7 @@
 
 (define run
   (lambda ()
-    (get-value 'return (M_state-cps (parser "Input.rkt") '((return) (0))))))
+    (get-value 'return (M_state-cps (parser "Input.rkt") '((return) (0)) (lambda (v) v) (lambda (v) v) (lambda (v) v)))))
 
 ;in order to be able to see what the parser will output
 (define parse
@@ -40,49 +40,23 @@
 ; isContinue
 ; isThrow
 
-
-#| (define M_state
-     (lambda (stmt-list state)
-       (cond
-         ((null? stmt-list)                state)
-         ((list? (car stmt-list))          (M_state (cdr stmt-list) (M_state (first stmt-list) state)))
-         ((isDeclare stmt-list)            (if (null? (cddr stmt-list))
-                                               (create-binding (second stmt-list) '() state)
-                                               (create-binding (second stmt-list) (M_int (caddr stmt-list) state) state)))
-         ((isAssign stmt-list)             (update-binding (cadr stmt-list) (M_int (caddr stmt-list) state) state))  
-         ((isReturn stmt-list)             (update-binding 'return (if (number? (M_int (cadr stmt-list) state))
-                                                                       (M_int (cadr stmt-list) state)
-                                                                       (if (M_bool (cadr stmt-list) state) 'true 'false))        ; maps #t/#f to true/false
-                                                                       state))
-         ((isIf stmt-list)                 (if (M_bool (cadr stmt-list) state)
-                                               (M_state (caddr stmt-list) state)
-                                               (if (null? (cdddr stmt-list))
-                                                   state
-                                                   (M_state (cadddr stmt-list) state))))    
-         ((isWhile stmt-list)              (if (M_bool (cadr stmt-list) state)
-                                               (M_state stmt-list (M_state (caddr stmt-list) state))
-                                            state))))) |#
-
-
-
-
-
-(define M_state-cps   ;; same issue here where list? check and isBlock are causing issues idk why tho
-  (lambda (stmts state)
+;end will terminate the program, break will only pop out one layer
+(define M_state-cps
+  (lambda (stmts state return break end)
     (cond
-      ((null? stmts)          state)
-      ((list? (car stmts))    (M_state-cps (cdr stmts) (M_state-cps (first stmts) state)))  ;; where the problem occurs;i also tracked a problem to here
-      
-      ((isDeclare stmts)  (handle-declare stmts state))
-      ((isAssign stmts)   (handle-assign stmts state))
-      ((isReturn stmts)    (handle-return stmts state))
-      ((isIf stmts)       (handle-if stmts state))
-      ;((isBreak (car stmts))  (handle-break state k))
+      ((null? stmts)       (return state))
+      ((list? (car stmts)) (M_state-cps (first stmts) state (lambda (v1) (M_state-cps (cdr stmts) v1 (lambda (v2) (return v2)) break end)) break end))
+      ((isDeclare stmts)   (handle-declare stmts state (lambda (v) (return v))))
+      ((isAssign stmts)    (handle-assign stmts state (lambda (v) (return v))))
+      ((isReturn stmts)    (end (handle-return stmts state)))
+      ((isIf stmts)        (handle-if stmts state (lambda (v) (return v)) break end))
+      ((isWhile stmts)     (start-while stmts state (lambda (v) (return v)) break end))
+      ((isBreak stmts)     (handle-break state break))
       ;((isContinue (car stmts)) (handle-continue state k))
       ;((isThrow (car stmts)) (handle-throw (car stmts) state k))
       ;((isTry (car stmts)) (handle-try (car stmts) state k))
-      ((isBlock stmts) (handle-block stmts state (lambda (v) v)))
-      (else state))))
+      ((isBlock stmts) (handle-block stmts state (lambda (v) (return v)) end))
+      (else (return state)))))
 
 
 ; -----------------------------------------------
@@ -90,14 +64,14 @@
 ; -----------------------------------------------
 
 (define handle-declare
-  (lambda (stmt state)
+  (lambda (stmt state return)
     (if (null? (cddr stmt))
-        (create-binding (second stmt) '() state)
-        (create-binding (second stmt) (M_int (caddr stmt) state) state))))
+        (return (create-binding (second stmt) '() state))
+        (return (create-binding (second stmt) (M_int (caddr stmt) state) state)))))
 
 (define handle-assign
-  (lambda (stmt state)
-    (update-binding (cadr stmt) (M_int (caddr stmt) state) state)))
+  (lambda (stmt state return)
+    (return (update-binding (cadr stmt) (M_int (caddr stmt) state) state))))
 
 (define handle-return
   (lambda (stmt state)
@@ -106,42 +80,42 @@
                         (M_int (second stmt) state)
                         (if (M_bool (second stmt) state) 'true 'false))
                     state)))
+
 (define handle-if
-  (lambda (stmt state)
+  (lambda (stmt state return break end)
     (if (M_bool (cadr stmt) state)
-        (M_state-cps (caddr stmt) state)
+        (M_state-cps (caddr stmt) state (lambda (v) (return v)) break end)
         (if (null? (cdddr stmt))
-            state
-            (M_state-cps (cadddr stmt) state)))))
+            (return state)
+            (M_state-cps (cadddr stmt) state (lambda (v) (return v)) break end)))))
 
-(define handle-while
-  (lambda (stmt state)
+#|(define handle-while
+  (lambda (stmt state return break end)
     (if (M_bool (cadr stmt) state)
-        (M_state-cps stmt (M_state-cps (caddr stmt) state))
-        state)))
+        (
+    (if (M_bool (cadr stmt) state)
+        (M_state-cps (caddr stmt) state (lambda (v1) (handle-while stmt v1 (lambda (v2) (return v2)) break end)) break end)
+        (return state))))|#
+(define start-while
+  (lambda (stmt state return break end)
+    (if (eq? 'begin (caaddr stmt))
+      (recurse-while (cadr stmt) (cdaddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end)
+      (recurse-while (cadr stmt) (caddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end))))
+(define recurse-while
+  (lambda (condition instructions state return break end)
+    (if (M_bool condition state)
+        (M_state-cps instructions state (lambda (v1) (recurse-while instructions v1 (lambda (v2) (return v2)) break end)) break end)
+        (return state))))
 
-(define handle-block   ;; rewritten to consider the whole thing as a block
-   (lambda (stmts state return)
-    (cond
-      ((eq? (caar stmts) 'while) (handle-while (car stmts) state))
-      ((eq? (caar stmts) 'if) (handle-if (car stmts) state))
-      (else (M_state-cps (cdr stmts) (M_state-cps (car stmts) state)))))) ;; using this allows the handle-if to be accessed through handle-block but not through M_state??
-
-#| (define handle-block
-      (lambda (stmts state return)
-       (pop-layer (M_state-cps (cdr stmts) (add-layer state)))))
- |#
-
-
-      
-
-
+ (define handle-block
+      (lambda (stmts state return end)
+        (M_state-cps (cdr stmts) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end)))
     
-#| (define handle-break
-     (lambda (state)
-       'BREAK))
+(define handle-break
+     (lambda (state break)
+       (break state)))
    
-   (define handle-continue
+#|   (define handle-continue
      (lambda (state)
        'CONTINUE))
    
@@ -162,16 +136,6 @@
                ((eq? 'CONTINUE (M_state-cps (caddr stmt) (add-layer state))) 'CONTINUE)
                (else (M_state-cps (caddr stmt) (add-layer state)))))
          (else (M_state-cps (cadr stmt) (add-layer state)))))))) |#
-
-
-
-
-; M_block: takes an expression (can have subexpressions) and a state --
-; what is it really doing? you are entering a block, adding a layer to the state when vars are declared in the block, checking for if and while loops in the block itself (nested?)
-;                          then once you get out of the block, you pop the layer off the state!
-; therefore: add funcions for adding a layer (add_layer) and popping a layer (pop_layer)
-
-; 2 ways to leave M_blovk: complete execution or because there is a break there
 
 ; M_int: takes an expression (can have subexpressions) and a state and returns a value -- pass on anything not related to ints to M_bool
 (define M_int
@@ -267,7 +231,7 @@
 (define update-binding-cps
   (lambda (var val state return)
     (cond
-      ((null? state) (error "var must be declare"))
+      ((null? state) (error "var must be declared"))
       ((var-in-top-layer? var (car state)) (return (cons (car state) (cons (update-val var val (car state) (cadr state)) (cddr state)))))
       (else (update-binding-cps var val (cddr state) (lambda (v) (return (cons (car state) (cons (cadr state) v)))))))))
 
@@ -300,7 +264,7 @@
 
 (define pop-layer
   (lambda (state)
-    state)) 
+    (cddr state))) 
 
 
 ; ------------------------------------------------------------------------------------------------------------------------------------

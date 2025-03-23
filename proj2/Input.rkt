@@ -1,17 +1,7 @@
-var a = 31160;
-var b = 1476;
-if (a < b) {
-  var temp = a;
-  a = b;
-  b = temp;
+var x = 0;
+if (x < 10) {
+  x = x - 1;
+  break;
+  x = x + 100;
 }
-var r = a % b;
-while (r != 0) {
-  a = b;
-  b = r;
-  r = a % b;
-}
-return b;
-
-
-
+return x;
