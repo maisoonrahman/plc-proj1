@@ -31,37 +31,30 @@
 
 ; M_state: takes in the parsed input and a state list and returns the state list
 ; inputs: tree - parse tree in nested list structure, state - '((var1 var2 var3) (val1 val2 val3))
-;                                                           - the first sublist contains variable names & the second sublist contains their corresponding values
-; TODO: add isBreak, isContinue, isThrow? Connamacher mentioned not to touch the current isIf and isWhile right now but I will watch the echo360 video again
-; add return to the parameter and add return to the beginning of each one? check if that works
 
-; isBlock  -- call add_layer, process every statement, then call remove_layer
-; isBreak
-; isContinue
-; isThrow
-
-;end will terminate the program, break will only pop out one layer
 (define M_state-cps
   (lambda (stmts state return break continue throw finally end)
     (cond
-      ((null? stmts)       (return state))
-      ((list? (car stmts)) (M_state-cps (first stmts) state (lambda (v1) (M_state-cps (cdr stmts) v1 (lambda (v2) (return v2)) break continue throw finally end)) break continue throw finally end))
-      ((isDeclare stmts)   (handle-declare stmts state (lambda (v) (return v))))
-      ((isAssign stmts)    (handle-assign stmts state (lambda (v) (return v))))
-      ((isReturn stmts)    (end (handle-return stmts state)))
-      ((isIf stmts)        (handle-if stmts state (lambda (v) (return v)) break continue throw finally end))
-      ((isWhile stmts)     (start-while stmts state (lambda (v) (return v)) break continue throw finally end))
-      ((isBreak stmts)     (handle-break state break))
-      ((isContinue (car stmts)) (handle-continue state continue))
-      ((isTry (car stmts)) (handle-try (car stmts) state return break continue throw end))
-      ((isThrow (car stmts)) (handle-throw (car stmts) state throw))
-      ((isBlock stmts) (handle-block stmts state (lambda (v) (return v)) throw finally end))
-      (else (return state)))))
+      ((null? stmts)               (return state))
+      ((list? (car stmts))         (M_state-cps (first stmts) state
+                                                (lambda (v1) (M_state-cps (cdr stmts) v1
+                                                                          (lambda (v2) (return v2)) break continue throw finally end)) break continue throw finally end))
+      ((isDeclare stmts)           (handle-declare stmts state (lambda (v) (return v))))
+      ((isAssign stmts)            (handle-assign stmts state (lambda (v) (return v))))
+      ((isReturn stmts)            (end (handle-return stmts state)))
+      ((isIf stmts)                (handle-if stmts state (lambda (v) (return v)) break continue throw finally end))
+      ((isWhile stmts)             (start-while stmts state (lambda (v) (return v)) break continue throw finally end))
+      ((isBreak stmts)             (handle-break state break))
+      ((isContinue (car stmts))    (handle-continue state continue))
+      ((isTry (car stmts))         (handle-try (car stmts) state return break continue throw end))
+      ((isThrow (car stmts))       (handle-throw (car stmts) state throw))
+      ((isBlock stmts)             (handle-block stmts state (lambda (v) (return v)) throw finally end))
+      (else                        (return state)))))
 
 
-; -----------------------------------------------
-; Handlers for statement types
-; -----------------------------------------------
+; ---------------------------------------------------------------------------------------------------------------------------------------------
+;                                                       Handlers for statement types
+; ---------------------------------------------------------------------------------------------------------------------------------------------
 
 (define handle-declare
   (lambda (stmt state return)
@@ -84,27 +77,37 @@
 (define handle-if
   (lambda (stmt state return break continue throw finally end)
     (if (M_bool (cadr stmt) state)
-        (M_state-cps (caddr stmt) state (lambda (v) (return v)) break continue throw finally end)
+        (M_state-cps (caddr stmt) state
+                     (lambda (v) (return v)) break continue throw finally end)
         (if (null? (cdddr stmt))
             (return state)
-            (M_state-cps (cadddr stmt) state (lambda (v) (return v)) break continue throw finally end)))))
+            (M_state-cps (cadddr stmt) state
+                         (lambda (v) (return v)) break continue throw finally end)))))
 
 
 (define start-while
   (lambda (stmt state return break continue throw finally end)
     (if (eq? 'begin (caaddr stmt))
-      (recurse-while (cadr stmt) (cdaddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) throw finally end)
-      (recurse-while (cadr stmt) (caddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) throw finally end))))
+      (recurse-while (cadr stmt) (cdaddr stmt) (add-layer state)
+                     (lambda (v) (return (pop-layer v)))
+                     (lambda (v) (return (pop-layer v)))
+                     (lambda (v) (return (pop-layer v))) throw finally end)
+      (recurse-while (cadr stmt) (caddr stmt) (add-layer state)
+                     (lambda (v) (return (pop-layer v)))
+                     (lambda (v) (return (pop-layer v)))
+                     (lambda (v) (return (pop-layer v))) throw finally end))))
 
 (define recurse-while
   (lambda (condition body state return break continue throw finally end)
     (if (M_bool condition state)
-        (M_state-cps body state (lambda (v1) (recurse-while condition body v1 (lambda (v2) (return v2)) break continue throw finally end)) break continue throw finally end)
+        (M_state-cps body state (lambda (v1) (recurse-while condition body v1
+                                                            (lambda (v2) (return v2)) break continue throw finally end)) break continue throw finally end)
         (return state))))
 
  (define handle-block
       (lambda (stmts state return throw finally end)
-        (M_state-cps (cdr stmts) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) throw finally end)))
+        (M_state-cps (cdr stmts) (add-layer state) (lambda (v) (return (pop-layer v)))
+                     (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) throw finally end)))
     
 (define handle-break
      (lambda (state break)
@@ -120,10 +123,10 @@
 
 (define handle-try
   (lambda (stmt state return break continue throw end)
-    (M_state-cps ((try-body stmt) (add-layer state) (lambda (v) (run-finally (finally-body stmt) (pop-layer v) return break continue throw end)) break continue
-                 (lambda (v1 v2) (run-catch (catch-var stmt) (catch-body stmt) v1 v2 return break continue throw end (finally-body stmt)))
-                 end))))
-                 
+    (M_state-cps ((try-body stmt) (add-layer state)
+                                  (lambda (v) (run-finally (finally-body stmt) (pop-layer v) return break continue throw end)) break continue
+                                  (lambda (v1 v2) (run-catch (catch-var stmt) (catch-body stmt) v1 v2 return break continue throw end (finally-body stmt)))
+                                   end))))  
 
 (define run-finally
   (lambda (finally-body final-state return break continue throw end)
@@ -135,12 +138,11 @@
     (M_state-cps catch-body (create-binding catch-var throw-val (add-layer throw-state))
                  (lambda (v) (run-finally finally-body (pop-layer v) return break continue throw end)) break continue throw end)))
 
-; abstractions for handle-try:
-(define try-body cadr)
-(define catch-block caddr)
-(define catch-var caadr)
-(define catch-body cdadr)
-(define finally-body cadddr)
+
+; ---------------------------------------------------------------------------------------------------------------------------------------------
+; ---------------------------------------------------------------------------------------------------------------------------------------------
+
+
 
 
 ; M_int: takes an expression (can have subexpressions) and a state and returns a value -- pass on anything not related to ints to M_bool
@@ -178,7 +180,7 @@
       ((eq? '>= (operator stmt-list)) (>= (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
       ((eq? '<= (operator stmt-list)) (<= (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state)))
       ((eq? '!= (operator stmt-list)) (not (= (M_int (firstoperand stmt-list) state) (M_int (secondoperand stmt-list) state))))
-      (else (error 'bad-op "Invalid operator")))))
+      (else                           (error 'bad-op "Invalid operator")))))
 
 ; ------------------------------------------------------------------------------------------------------------------------------------
 ; ------------------------------------------------------------------------------------------------------------------------------------
@@ -206,18 +208,7 @@
       ((check-binding var state) (error "variable already declared in this block"))
       (else (cons (cons var (var-sublist state)) (cons (cons value (val-sublist state)) (cddr state)))))))
 
-; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
-;im pretty sure this works but it just gets discarded when it goes back to M_state??
-#| (define update-binding-cps
-     (lambda (var val state return)
-       (cond
-         ((null? state) (error "variable must be declared"))
-         ((null? (car state)) (update-binding-cps var val (cddr state) (lambda (v) (return (cons '() (cons '() v))))))
-         ((eq? var (caar state)) (return (cons (car state) (cons (cons val (cdadr state)) (cddr state)))))
-         (else (update-binding-cps var val (cons (cdar state) (cons (cdadr state) (cddr state)))
-                                   (lambda (v) (return (cons (cons (caar state) (car v)) (cons (cons (caadr state) (cadr v)) (cddr state))))))))))
-     |#
-
+; checks the block for variables
 (define var-in-top-layer?
   (lambda (var varlist)
     (cond
@@ -225,6 +216,7 @@
       [(eq? var (car varlist)) #t]
       [else (var-in-top-layer? var (cdr varlist))])))
 
+; update-val: updates the value in state
 (define update-val
   (lambda (var val varlist vallist)
     (cond
@@ -233,7 +225,7 @@
       [else (cons (car vallist)
                   (update-val var val (cdr varlist) (cdr vallist)))])))
 
-
+; update-binding: takes in var name, value and state and returns updated state, does nothing if var name doesnt exist
 (define update-binding-cps
   (lambda (var val state return)
     (cond
@@ -241,16 +233,10 @@
       ((var-in-top-layer? var (car state)) (return (cons (car state) (cons (update-val var val (car state) (cadr state)) (cddr state)))))
       (else (update-binding-cps var val (cddr state) (lambda (v) (return (cons (car state) (cons (cadr state) v)))))))))
 
-
+; update=binding calling function
 (define update-binding
   (lambda (var val state)
     (update-binding-cps var val state (lambda (v) v))))
-    #|(cond
-      ((null? state) (error "variable must be declared"))
-      ((null? (car state)) (update-binding var val (cddr state)))
-      ((eq? var (caar state)) (cons (car state) (cons (cons val (cdadr state)) (cddr state))))
-      (else (update-binding var val (cons (cdar state) (cons (cdadr state) (cddr state))))))))|#
-    
 
 ;check-binding takes in var name, state and returns true if var already exists, false otherwise
 (define check-binding
@@ -260,14 +246,12 @@
       ((eq? var (caar state)) #t)
       (else                   (check-binding var (list (cdar state) (cdadr state)))))))
 
-
-
-; TODO: add functions -- add_layer and pop_layer
-
+; adds new layer in state
 (define add-layer
   (lambda (state)
      (cons '() (cons '() state))))
 
+; removes layer in state
 (define pop-layer
   (lambda (state)
     (cddr state))) 
@@ -338,6 +322,11 @@
 (define var-sublist car)
 (define val-sublist cadr)
 
-; TODO: add abstraction for state sublists
-; TODO: add abstraction for parse tree too maybe, it might help with figuring out different branches and nodes
+; abstractions for handle-try:
+(define try-body cadr)
+(define catch-block caddr)
+(define catch-var caadr)
+(define catch-body cdadr)
+(define finally-body cadddr)
+
 
