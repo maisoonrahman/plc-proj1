@@ -16,7 +16,7 @@
 
 (define run
   (lambda ()
-    (get-value 'return (M_state-cps (parser "Input.rkt") '((return) (0)) (lambda (v) v) (lambda (v) v) (lambda (v) v) (lambda (v) v) (lambda (v) v) (lambda (v) v)))))
+    (get-value 'return (M_state-cps (parser "Input.rkt") '((return) (0)) (lambda (v) v) (lambda (v) (error "break called before loop entered")) (lambda (v) (error "continue called before loop entered")) (lambda (v) (error "throw called before try catch entered")) (lambda (v) (error "finally called before try catch entered")) (lambda (v) v)))))
 
 ;in order to be able to see what the parser will output
 (define parse
@@ -49,13 +49,13 @@
       ((isDeclare stmts)   (handle-declare stmts state (lambda (v) (return v))))
       ((isAssign stmts)    (handle-assign stmts state (lambda (v) (return v))))
       ((isReturn stmts)    (end (handle-return stmts state)))
-      ((isIf stmts)        (handle-if stmts state (lambda (v) (return v)) break continue end))
-      ((isWhile stmts)     (start-while stmts state (lambda (v) (return v)) break continue end))
+      ((isIf stmts)        (handle-if stmts state (lambda (v) (return v)) break continue throw finally end))
+      ((isWhile stmts)     (start-while stmts state (lambda (v) (return v)) break continue throw finally end))
       ((isBreak stmts)     (handle-break state break))
       ((isContinue (car stmts)) (handle-continue state continue))
       ((isTry (car stmts)) (handle-try (car stmts) state return break continue throw end))
       ((isThrow (car stmts)) (handle-throw (car stmts) state throw))
-      ((isBlock stmts) (handle-block stmts state (lambda (v) (return v)) end))
+      ((isBlock stmts) (handle-block stmts state (lambda (v) (return v)) throw finally end))
       (else (return state)))))
 
 
@@ -82,29 +82,29 @@
                     state)))
 
 (define handle-if
-  (lambda (stmt state return break continue end)
+  (lambda (stmt state return break continue throw finally end)
     (if (M_bool (cadr stmt) state)
-        (M_state-cps (caddr stmt) state (lambda (v) (return v)) break continue end)
+        (M_state-cps (caddr stmt) state (lambda (v) (return v)) break continue throw finally end)
         (if (null? (cdddr stmt))
             (return state)
-            (M_state-cps (cadddr stmt) state (lambda (v) (return v)) break continue end)))))
+            (M_state-cps (cadddr stmt) state (lambda (v) (return v)) break continue throw finally end)))))
 
 
 (define start-while
-  (lambda (stmt state return break continue end)
+  (lambda (stmt state return break continue throw finally end)
     (if (eq? 'begin (caaddr stmt))
-      (recurse-while (cadr stmt) (cdaddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end)
-      (recurse-while (cadr stmt) (caddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end))))
+      (recurse-while (cadr stmt) (cdaddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) throw finally end)
+      (recurse-while (cadr stmt) (caddr stmt) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) throw finally end))))
 
 (define recurse-while
-  (lambda (condition body state return break continue end)
+  (lambda (condition body state return break continue throw finally end)
     (if (M_bool condition state)
-        (M_state-cps body state (lambda (v1) (recurse-while condition body v1 (lambda (v2) (return v2)) break continue end)) break continue end)
+        (M_state-cps body state (lambda (v1) (recurse-while condition body v1 (lambda (v2) (return v2)) break continue throw finally end)) break continue throw finally end)
         (return state))))
 
  (define handle-block
-      (lambda (stmts state return end)
-        (M_state-cps (cdr stmts) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) end)))
+      (lambda (stmts state return throw finally end)
+        (M_state-cps (cdr stmts) (add-layer state) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) (lambda (v) (return (pop-layer v))) throw finally end)))
     
 (define handle-break
      (lambda (state break)
@@ -316,7 +316,7 @@
 
 (define isTry
   (lambda (stmt)
-    (or (pair? stmt) (eq? 'try (car stmt)))))
+    (and (pair? stmt) (eq? 'try (car stmt)))))
 
 (define isCatch
   (lambda (stmt)
