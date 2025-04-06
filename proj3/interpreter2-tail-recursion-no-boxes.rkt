@@ -10,9 +10,9 @@
 
 ; The main function.  Calls parser to get the parse tree and interprets it with a new environment.  Sets default continuations for return, break, continue, throw, and "next statement"
 (define interpret
-  (lambda (file)
+  (lambda ()
     (scheme->language
-     (interpret-statement-list (parser file) (newenvironment) (lambda (v) v)
+     (interpret-statement-list (parser "Input.rkt") (newenvironment) (lambda (v) v)
                                (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
                                (lambda (v env) (myerror "Uncaught exception thrown")) (lambda (env) env)))))
 
