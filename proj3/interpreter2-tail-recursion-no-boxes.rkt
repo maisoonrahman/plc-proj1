@@ -37,6 +37,7 @@
       ((eq? 'begin (statement-type statement)) (interpret-block statement environment return break continue throw next))
       ((eq? 'throw (statement-type statement)) (interpret-throw statement environment throw))
       ((eq? 'try (statement-type statement)) (interpret-try statement environment return break continue throw next))
+      ((eq? 'function (statement-type statement)) (interpret-function statement environment))
       (else (myerror "Unknown statement:" (statement-type statement))))))
 
 ; Calls the return continuation with the given expression value
@@ -119,6 +120,9 @@
            (new-continue (lambda (env) (interpret-block finally-block env return break continue throw (lambda (env2) (continue env2)))))
            (new-throw (create-throw-catch-continuation (get-catch statement) environment return break continue throw next finally-block)))
       (interpret-block try-block environment new-return new-break new-continue new-throw (lambda (env) (interpret-block finally-block env return break continue throw next))))))
+
+(define interpret-function
+  (lambda (statement environment)))
 
 ; helper methods so that I can reuse the interpret-block method on the try and finally blocks
 (define make-try-block
