@@ -12,9 +12,18 @@
 (define interpret
   (lambda ()
     (scheme->language
-     (interpret-statement-list (parser "Input.rkt") (newenvironment) (lambda (v) v)
+      (eval-function ('main (make-global-layer (parser "Input.rkt")))))))
+
+(define make-global-layer
+  (lambda (parse-tree)
+    (interpret-statement-list (car (cdddar parse-tree)) (newenvironment) (lambda (v) v)
                                (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
-                               (lambda (v env) (myerror "Uncaught exception thrown")) (lambda (env) env)))))
+                               (lambda (v env) (myerror "Uncaught exception thrown")) (lambda (env) env))))
+
+;(define interpret-global-layer
+  ;(lambda (statement-list environment)
+    ;(cond
+      ;((null? statement-list) env
 
 ; interprets a list of statements.  The state/environment from each statement is used for the next ones.
 (define interpret-statement-list
@@ -37,7 +46,7 @@
       ((eq? 'begin (statement-type statement)) (interpret-block statement environment return break continue throw next))
       ((eq? 'throw (statement-type statement)) (interpret-throw statement environment throw))
       ((eq? 'try (statement-type statement)) (interpret-try statement environment return break continue throw next))
-      ((eq? 'function (statement-type statement)) (interpret-function statement environment))
+      ((eq? 'function (statement-type statement)) (interpret-function statement environment return break continue throw next))
       (else (myerror "Unknown statement:" (statement-type statement))))))
 
 ; Calls the return continuation with the given expression value
@@ -122,7 +131,8 @@
       (interpret-block try-block environment new-return new-break new-continue new-throw (lambda (env) (interpret-block finally-block env return break continue throw next))))))
 
 (define interpret-function
-  (lambda (statement environment)))
+  (lambda (statement environment return break continue throw next)
+    (insert (get-func-name statement) (create-closure (get-func-params statement) (get-func-body statement)) environment)))
 
 ; helper methods so that I can reuse the interpret-block method on the try and finally blocks
 (define make-try-block
@@ -136,22 +146,39 @@
       ((not (eq? (statement-type finally-statement) 'finally)) (myerror "Incorrectly formatted finally block"))
       (else (cons 'begin (cadr finally-statement))))))
 
+;this is hopefully gonna evaluate a function and return a value?
+(define eval-function
+  (lambda (name arg-list environment next)
+    (interpret-statement-list (cadr (lookup name env)) (get-func-env (car (lookup name env)) arg-list env)
+                              (lambda (v) (next v)) (lambda (v) (error "break outside loop"))
+                              (lambda (v) (error "continue outside loop")) throw (lambda (v) (error "no return statement"))))))
+
+(define get-func-env
+  (lambda (formal-params arg-list env)
+    (cond
+      ((and (pair? formal-params) (pair? arg-list)) (get-func-env (cdr formal-params) (cdr arg-list) (insert (operator formal-params) (operator arg-list) env)))
+      ((pair? formal-params) (error "function requires more args"))
+      ((pair? arg-list) (error "too many arguments provided"))
+      (else env))))
+    
+
 ; Evaluates all possible boolean and arithmetic expressions, including constants and variables.
 (define eval-expression
-  (lambda (expr environment)
+  (lambda (expr environment next)
     (cond
       ((number? expr) expr)
       ((eq? expr 'true) #t)
       ((eq? expr 'false) #f)
       ((not (list? expr)) (lookup expr environment))
-      (else (eval-operator expr environment)))))
+      (else (eval-operator expr environment next)))))
 
 ; Evaluate a binary (or unary) operator.  Although this is not dealing with side effects, I have the routine evaluate the left operand first and then
 ; pass the result to eval-binary-op2 to evaluate the right operand.  This forces the operands to be evaluated in the proper order in case you choose
 ; to add side effects to the interpreter
 (define eval-operator
-  (lambda (expr environment)
+  (lambda (expr environment next)
     (cond
+      ((eq? 'funcall (operator expr)) (eval-function (cadr expr) (caddr expr) environment next)
       ((eq? '! (operator expr)) (not (eval-expression (operand1 expr) environment)))
       ((and (eq? '- (operator expr)) (= 2 (length expr))) (- (eval-expression (operand1 expr) environment)))
       (else (eval-binary-op2 expr (eval-expression (operand1 expr) environment) environment)))))
@@ -217,6 +244,9 @@
 (define get-try operand1)
 (define get-catch operand2)
 (define get-finally operand3)
+(define get-func-name operand1)
+(define get-func-params operand2)
+(define get-func-body cdddr)
 
 (define catch-var
   (lambda (catch-statement)
@@ -226,6 +256,16 @@
 ;------------------------
 ; Environment/State Functions
 ;------------------------
+;this returns a tuple containing a list of parameters, a list containing the function body, then an integer n, where the n deepest layers are the ones that are in scope of the function
+(define create-closure
+  (lambda (params body) (list params body (lambda (v) v))))
+
+(define count-layers
+  (lambda (env)
+    (if (null? env)
+        0
+        (+ 1 (count-layers (cddr env))))))
+    
 
 ; create a new empty environment
 (define newenvironment
@@ -307,7 +347,7 @@
 (define get-value
   (lambda (n l)
     (cond
-      ((zero? n) (car l))
+      ((zero? n) (unbox (car l)))
       (else (get-value (- n 1) (cdr l))))))
 
 ; Adds a new variable/value binding pair into the environment.  Gives an error if the variable already exists in this frame.
@@ -327,7 +367,7 @@
 ; Add a new variable/value pair to the frame.
 (define add-to-frame
   (lambda (var val frame)
-    (list (cons var (variables frame)) (cons (scheme->language val) (store frame)))))
+    (list (cons var (variables frame)) (cons (box (scheme->language val)) (store frame)))))
 
 ; Changes the binding of a variable in the environment to a new value
 (define update-existing
@@ -345,7 +385,7 @@
 (define update-in-frame-store
   (lambda (var val varlist vallist)
     (cond
-      ((eq? var (car varlist)) (cons (scheme->language val) (cdr vallist)))
+      ((eq? var (car varlist)) (cons (box (scheme->language val)) (cdr vallist)))
       (else (cons (car vallist) (update-in-frame-store var val (cdr varlist) (cdr vallist)))))))
 
 ; Returns the list of variables from a frame
