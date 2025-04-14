@@ -1,9 +1,12 @@
-function main() {
-                 var x = 10;
-{
-  var y = 2;
-  var z = x * y;
-  x = z;
+function fib(a) {
+  if (a == 0)
+    return 0;
+  else if (a == 1)
+    return 1;
+  else 
+    return fib(a-1) + fib(a-2);
 }
-return x;
+
+function main() {
+  return fib(10);
 }

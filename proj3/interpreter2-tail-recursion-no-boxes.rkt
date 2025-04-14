@@ -11,14 +11,21 @@
 ; The main function.  Calls parser to get the parse tree and interprets it with a new environment.  Sets default continuations for return, break, continue, throw, and "next statement"
 (define interpret
   (lambda ()
-    (scheme->language
-      (eval-function ('main (make-global-layer (parser "Input.rkt")))))))
+    (let* ((parsed (parser "Input.rkt"))
+           (env (interpret-statement-list
+                 parsed
+                 (newenvironment)
+                 (lambda (env) env)
+                 (lambda (env) (myerror "Break used outside of loop"))
+                 (lambda (env) (myerror "Continue used outside of loop"))
+                 (lambda (v env) (myerror "Uncaught exception thrown"))
+                 (lambda (env) env))))
+      ;; Return the value of main via continuation
+      (eval-function 'main '() env
+                     (lambda (v) v) ; ← this returns the result of main!
+                     (lambda (v) (error "Unhandled throw: ~a" v))))))
 
-(define make-global-layer
-  (lambda (parse-tree)
-    (interpret-statement-list (car (cdddar parse-tree)) (newenvironment) (lambda (v) v)
-                               (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
-                               (lambda (v env) (myerror "Uncaught exception thrown")) (lambda (env) env))))
+
 
 ;(define interpret-global-layer
   ;(lambda (statement-list environment)
@@ -52,19 +59,19 @@
 ; Calls the return continuation with the given expression value
 (define interpret-return
   (lambda (statement environment return)
-    (return (eval-expression (get-expr statement) environment))))
+    (eval-expression (get-expr statement) environment (lambda (v) (return v)))))
 
 ; Adds a new variable binding to the environment.  There may be an assignment with the variable
 (define interpret-declare
   (lambda (statement environment next)
     (if (exists-declare-value? statement)
-        (next (insert (get-declare-var statement) (eval-expression (get-declare-value statement) environment) environment))
+        (next (insert (get-declare-var statement) (eval-expression (get-declare-value statement) environment next) environment))
         (next (insert (get-declare-var statement) 'novalue environment)))))
 
 ; Updates the environment to add a new binding for a variable
 (define interpret-assign
   (lambda (statement environment next)
-    (next (update (get-assign-lhs statement) (eval-expression (get-assign-rhs statement) environment) environment))))
+    (next (update (get-assign-lhs statement) (eval-expression (get-assign-rhs statement) environment next) environment))))
 
 ; We need to check if there is an else condition.  Otherwise, we evaluate the expression and do the right thing.
 (define interpret-if
@@ -132,7 +139,9 @@
 
 (define interpret-function
   (lambda (statement environment return break continue throw next)
-    (insert (get-func-name statement) (create-closure (get-func-params statement) (get-func-body statement)) environment)))
+    (next (insert (get-func-name statement)
+                  (create-closure (get-func-params statement) (get-func-body statement))
+                  environment))))
 
 ; helper methods so that I can reuse the interpret-block method on the try and finally blocks
 (define make-try-block
@@ -147,11 +156,40 @@
       (else (cons 'begin (cadr finally-statement))))))
 
 ;this is hopefully gonna evaluate a function and return a value?
+#| (define eval-function
+     (lambda (name arg-list env next throw)
+       (displayln "Function body:")
+       (displayln body)
+       (interpret-statement-list (cadr (lookup name env)) (get-func-env (car (lookup name env)) arg-list env)
+                                 (lambda (v) (next v)) (lambda (v) (error "break outside loop"))
+                              (lambda (v) (error "continue outside loop")) throw (lambda (v) (error "no return statement"))))) |#
+
 (define eval-function
-  (lambda (name arg-list environment next)
-    (interpret-statement-list (cadr (lookup name env)) (get-func-env (car (lookup name env)) arg-list env)
-                              (lambda (v) (next v)) (lambda (v) (error "break outside loop"))
-                              (lambda (v) (error "continue outside loop")) throw (lambda (v) (error "no return statement"))))))
+  (lambda (name arg-list env next throw)
+    (let* ((closure (lookup name env))
+           (params (car closure))
+           (raw-body (cadr closure))
+           (env-maker (caddr closure))
+           ;; Flatten double-nested body if needed
+           (body (cond
+                   ;; body is (((...))) → unwrap twice
+                   ((and (list? raw-body) (list? (car raw-body)) (list? (car (car raw-body))))
+                    (car raw-body))
+                   ;; body is ((...)) → good
+                   ((and (list? raw-body) (list? (car raw-body)))
+                    raw-body)
+                   ;; body is single statement → wrap in list
+                   (else (list raw-body))))
+           (func-env (get-func-env params arg-list (env-maker env))))
+      (displayln "Function body:")
+      (displayln body)
+      (interpret-statement-list body func-env
+                                (lambda (v) (next v))
+                                (lambda (v) (error "break outside loop"))
+                                (lambda (v) (error "continue outside loop"))
+                                throw
+                                (lambda (v) (error "no return statement"))))))
+
 
 (define get-func-env
   (lambda (formal-params arg-list env)
@@ -178,10 +216,10 @@
 (define eval-operator
   (lambda (expr environment next)
     (cond
-      ((eq? 'funcall (operator expr)) (eval-function (cadr expr) (caddr expr) environment next)
+      ((eq? 'funcall (operator expr)) (eval-function (cadr expr) (caddr expr) environment next))
       ((eq? '! (operator expr)) (not (eval-expression (operand1 expr) environment)))
       ((and (eq? '- (operator expr)) (= 2 (length expr))) (- (eval-expression (operand1 expr) environment)))
-      (else (eval-binary-op2 expr (eval-expression (operand1 expr) environment) environment)))))
+      (else eval-binary-op2 expr (eval-expression (operand1 expr) environment next) environment))))
 
 ; Complete the evaluation of the binary operator by evaluating the second operand and performing the operation.
 (define eval-binary-op2
@@ -424,6 +462,7 @@
     (letrec ((makestr (lambda (str vals)
                         (if (null? vals)
                             str
-                            (makestr (string-append str (string-append " " (symbol->string (car vals)))) (cdr vals))))))
+                            (makestr (string-append str " " (format "~a" (car vals))) (cdr vals))))))
       (error-break (display (string-append str (makestr "" vals)))))))
+
 
