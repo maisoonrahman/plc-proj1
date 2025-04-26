@@ -15,6 +15,8 @@
     (scheme->language
      (lookup 'return (eval-function (lookup-method 'main (lookup class-name (get-overall-env file))) (get-overall-env file))))))
      ;(get-overall-env file))))
+
+;just returns the state after running through the code and creating all the class closures
 (define test
   (lambda ()
     (scheme->language
@@ -193,6 +195,7 @@
 ;---------------------------
 ;ALL THE NEW STUFF IM MAKING
 ;---------------------------
+;not even started
 (define interpret-function-creation 1)
 
 (define interpret-function-call 1)
@@ -206,11 +209,13 @@
 (define eval-function
   (lambda (func-closure environment) 1))
 
+;lookup a method closure from a class closure
 (define lookup-method
   (lambda (name class-closure)
     (lookup name (get-class-methods class-closure))))
     
 ;class-closure is of form (super-class-closure ((instance field names) (instance field instansiation or ())) ((method names) (method closures)))
+;it does not currently return a closure in that format
 (define create-class-closure
   (lambda (statement environment)
     (insert
@@ -218,12 +223,14 @@
      (list (get-super-class (operand2 statement)) (create-instance-field-bindings (operand3 statement)) (create-method-closures (operand3 statement)))
      environment)))
 
+;get the super class of a class definition
 (define get-super-class
   (lambda (statement)
     (if (null? statement)
         '()
         (operand1 statement))))
 
+;return a list of all the method closures
 (define create-method-closures
   (lambda (statement-list)
     (cond
@@ -232,14 +239,17 @@
       ((eq? 'static-function (caar statement-list)) (add-but-funky (cadar statement-list) (create-single-static-method-closure (car statement-list)) (create-method-closures (cdr statement-list))))
       (else (create-method-closures (cdr statement-list))))))
 
+;create a single static method closure (main only generally)
 (define create-single-static-method-closure
  (lambda (statement)
    (list (operand2 statement) (operand3 statement) (lambda (v) v))))
 
+;create a single non static method closure
 (define create-single-normal-method-closure
  (lambda (statement)
    (list (cons 'this (operand2 statement)) (operand3 statement) (lambda (v) v))))
 
+;return a list of all the instance field bindings
 (define create-instance-field-bindings
   (lambda (statement-list)
     (cond
@@ -247,10 +257,12 @@
       ((eq? 'var (caar statement-list)) (add-but-funky (cadar statement-list) (caddar statement-list) (create-instance-field-bindings (cdr statement-list))))
       (else (create-instance-field-bindings (cdr statement-list))))))
 
+;i switched to using a setup where we have a return variable in the state that tells you what the return value is, it currently does not work
 (define set-return
   (lambda (value environment)
     (update 'return value environment)))
 
+;specifically to add a val var binding to a (()())
 (define add-but-funky
   (lambda (var val env)
     (list (cons var (car env)) (cons val (cadr env)))))
