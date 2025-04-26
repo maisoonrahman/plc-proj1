@@ -7,11 +7,43 @@
 ; ===================================================================================================================================
 ; ===================================================================================================================================
 
+(define interpret
+  (lambda ()
+    (let* ((parsed (parser "Input.rkt"))
+           (env (handle-statementlist
+                 parsed
+                 (newenvironment)
+                 (lambda (env) env)
+                 (lambda (env) env)
+                 (lambda (env) (error "Break used outside of loop"))
+                 (lambda (env) (error "Continue used outside of loop"))
+                 (lambda (v env) (error "Uncaught exception thrown")))))
+      ;; Return the value of main via continuation
+      (displayln (format "state: ~a" env))
+      (eval-function 'main '() env
+                     (lambda (v) v) ; ← this returns the result of main!
+                     (lambda (v) v)
+                     (lambda (v) (error "Unhandled throw: ~a" v))))))
+
+(define run
+  (lambda ()
+    (eval-function 'main '()
+                   (handle-statementlist
+                     (parser "Input.rkt")
+                     (newenvironment)
+                     (lambda (env) env)
+                     (lambda (env) env)
+                     (lambda (env) (error "Break used outside of loop"))
+                     (lambda (env) (error "Continue used outside of loop"))
+                     (lambda (v env) (error "Uncaught exception thrown")))
+                   (lambda (v) v) ; ← this returns the result of main!
+                   (lambda (v) v)
+                   (lambda (v) (error "Unhandled throw: ~a" v)))))
 
 ; to run the program, just do (run) in the terminal
 ; it sends the parsed input file and an empty state list, with a 0 return value
 ; and then it will print out the return value, which is the only value in the first list of the state
-(define interpret
+#|(define interpret
   (lambda ()
     (call-main (global-layer (parser "Input.rkt")))))
 
@@ -37,7 +69,7 @@
                             (lambda (next) next)
                             (lambda (break) (error "Break used outside of loop"))
                             (lambda (cont) (error "Continue used outside of loop"))
-                            (lambda (ex val) (error "Uncaught exception thrown.")))))))
+                            (lambda (ex val) (error "Uncaught exception thrown.")))))))|#
 
 
 
@@ -52,6 +84,7 @@
 
 (define M_state
   (lambda (stmt state return next break continue throw)
+    (displayln (format "state: ~a" state))
     (cond
       ((isReturn stmt)      (handle-return stmt state return throw))
       ((isDeclare stmt)     (handle-declare stmt state next throw))
@@ -65,8 +98,8 @@
       ((isThrow stmt)       (throw (M_int (throw_block stmt) state throw) state))
       ((isFinally stmt)     (M_state (cdr stmt) (add-layer state) return next break continue throw))
       ((isFunction stmt)    (handle-funcdef stmt state next))
-      ((isFuncCall stmt)    (eval-function stmt state next throw))
-      (else                 error "Invalid statement: ~a" stmt))))
+      ((isFuncCall stmt)    (eval-function (funcall-name stmt) (funcall-params stmt) state next throw))
+      (else                 (error "invalid statement")))))
 
 ; M_int: takes an expression (can have subexpressions) and a state and returns a value -- pass on anything not related to ints to M_bool
 (define M_int
@@ -76,10 +109,12 @@
 (define M_int_helper
   (lambda (stmt-list state return throw)
     (cond
-      ((number? stmt-list)                  (return stmt-list))
+      ((number? stmt-list)                 (return stmt-list))
       ((eq? stmt-list 'true)                (return #t))
       ((eq? stmt-list 'false)               (return #f))
-      ((not-list stmt-list)                    (return (get-variable stmt-list state)))
+      ((not-list stmt-list)                    (return (lookup stmt-list state)))
+      ((isFuncCall stmt-list)                (return (eval-function (funcall-name stmt-list) (funcall-params stmt-list) state return (lambda (v) v) throw)))
+      
       ((eq? (car stmt-list) '+)          (M_int_helper (firstoperand stmt-list) state (lambda (v1) (M_int_helper (caddr stmt-list) state (lambda (v2) (return (+ v1 v2))) throw)) throw))
       ((and (eq? (car stmt-list) '-)     (not (null? (cddr stmt-list)))) (M_int_helper (firstoperand stmt-list) state
                                                                                 (lambda (v1) (M_int_helper (caddr stmt-list) state
@@ -107,8 +142,8 @@
     (cond
       ((eq? 'true stmt-list)                 (return #t))
       ((eq? 'false stmt-list)                (return #f))
-      ((not-list stmt-list)                  (return (get-variable stmt-list state)))
-      ((isFuncCall stmt-list)                (return (eval-function stmt-list state return (lambda (v) v) throw)))
+      ((not-list stmt-list)                  (return (lookup stmt-list state)))
+      ((isFuncCall stmt-list)                (return (eval-function (funcall-name stmt-list) (funcall-params stmt-list) state return (lambda (v) v) throw)))
       ((eq? '! (operator stmt-list))         (M_bool_helper (firstoperand stmt-list) state
                                                             (lambda (v) (return (not v))) throw))
       ((eq? '&& (operator stmt-list))        (M_bool_helper (firstoperand stmt-list) state
@@ -156,15 +191,16 @@
 
 (define handle-return
   (lambda (stmt state return throw)
-    (let ((x (M_int (cadr stmt) state throw)))
+    (M_int (cadr stmt) state throw)))
+    #|(let ((x (M_int (cadr stmt) state throw)))
       (cond
         ((number? x) (return x))
         (x (return 'true))
-        (else (return 'false))))))
+        (else (return 'false))))))|#
 
 (define handle-assign
   (lambda (stmt state next throw)
-    (next (create-binding! (cadr stmt) (M_int (caddr stmt) state throw) state))))
+    (next (add-variable (cadr stmt) (M_int (caddr stmt) state throw) state))))
 
 (define handle-if
   (lambda (stmt state return next break continue throw)
@@ -175,6 +211,13 @@
             (M_state (cadddr stmt) state return next break continue throw)))))
 
 (define handle-while
+  (lambda (statement environment return next throw)
+    (letrec ((loop (lambda (condition body environment)
+                     (if (M_bool condition environment return throw)
+                         (M_state body environment return (lambda (env) (loop condition body env)) (lambda (env) (next env)) (lambda (env) (loop condition body env)) throw)
+                         (next environment)))))
+      (loop (cadr statement) (caddr statement) environment))))
+#|(define handle-while
   (lambda (stmt state return next throw)
     (recurse-while (cadr stmt) (caddr stmt) state return next throw)))
 
@@ -185,7 +228,7 @@
                  (lambda (v3) (next v3))                                 
                  (lambda (v4) (recurse-while body v4 return next throw)) 
                  throw)
-        (next state))))
+        (next state))))|#
 
 (define handle-block
   (lambda (stmts state return next break continue throw)
@@ -235,14 +278,24 @@
 ; handle-funcdef: creates function definition with name and parameters
 (define handle-funcdef
   (lambda (stmt state next)
+    ;(add-function (function-name stmt) (function-params stmt) (function-body stmt) state)))
     (next (add-function (function-name stmt) (function-params stmt) (function-body stmt) state))))
 
 
 ;this is hopefully gonna evaluate a function and return a value?
 ; eval-function: evaluates a given function called in stmt-list
 (define eval-function
-  (lambda (stmt state return next throw)
-    (let ((closure (get-function-closure (function-name stmt) state)))
+  (lambda (name params state return next throw)
+    (return (handle-statementlist
+       (closure-body (lookup name state))
+       (bind-params (closure-params (lookup name state)) params (add-layer state) state throw)
+       (lambda (v) (error "no return"))
+       (lambda (v) (next v))
+       (lambda (v) (error "break outside loop"))
+       (lambda (v) (error "continue outside loop"))
+       throw))))
+      
+    #|(let ((closure (get-function-closure (function-name stmt) state)))
       (cond
         ; parameter count mismatch
         [(not (= (num-params (closure_params closure)) (num-params (params stmt)))) (error "Parameter mismatch (expected ~a, got ~a)" (num-params (closure_params closure)) (num-params (params stmt)))]
@@ -259,31 +312,37 @@
         next
         (lambda (v1) (error "Break outside of loop"))
         (lambda (v2) (error "Continue outside of loop"))
-        (lambda (v3 v4) (throw v3 state))))))))
+        (lambda (v3 v4) (throw v3 state))))))))|#
 
 ; helpers for function evaluation:
 
 ; bind-params:binding the formal params to actual params
 ; pass-by-reference
 (define bind-params
-  (lambda (formal-params actual-params state function-state throw)
+  (lambda (formal-params actual-params func-state current-state throw)
     (cond
-      ((null? formal-params) function-state)
-      ((eq? (car formal-params) '&) (if (not (not-list (car actual-params)))
+      ((and (null? formal-params) (null? actual-params)) func-state)
+      ((and (null? formal-params) (not (null? actual-params))) (error "not enough parameters given"))
+      ((and (not (null? formal-params)) (null? actual-params)) (error "too many parameters given"))
+      (else (bind-params (cdr formal-params) (cdr actual-params) (add-variable (car formal-params) (M_int (car actual-params) current-state throw) func-state) current-state throw)))))
+      #|((eq? (car formal-params) '&) (if (not (not-list (car actual-params)))
                                                (error "Variable name expected, ~a received" (car actual-params))
                                                (bind-params (cddr formal-params)
                                                             (cdr actual-params) state
-                                                            (add-ptr (cadr formal-params) (get-ptr (car actual-params) state) function-state) throw)))
+                                                            (add-ptr (cadr formal-params) (get-ptr (car actual-params) state) state) throw)))
       (else bind-params (cdr formal-params) (cdr actual-params) state
-                         (add-variable (car formal-params) (M_int (car actual-params) state throw) function-state) throw))))
+                         (add-variable (car formal-params) (M_int (car actual-params) state throw) state) throw))))|#
 
 ; add-function: creates a function binding
 (define add-function
   (lambda (name params body state)
-    (cond
+    (add-variable name (create-closure params body state) state)))
+    #|(cond
       ((check-binding name state)  (error "Function name already declared: ~a" name))
-      ((null? (cddr state))    (list (cons name (car state)) (cons (create-closure params body state) (cadr state))))
-      (else                    (append (list (cons name (car state)) (cons (create-closure params body state) (cadr state))) (pop-layer state))))))
+      ((null? (cddr state))
+       ;(add-variable name (create-closure params body state) state))
+      (list (cons name (car state)) (cons (create-closure params body state) (cadr state))))
+      (else                    (append (list (cons name (car state)) (cons (create-closure params body state) (cadr state))) (pop-layer state))))))|#
 
 ; get-function-closure: retrieve function closure
 (define get-function-closure
@@ -293,7 +352,7 @@
       ((not-list (car state)) (get-function-closure name (cdr state)))
       ((null? (car state)) (get-function-closure name (pop-layer state)))
       ((and (eq?  (caar state) name) (list? (car (cadr state)))) (caadr state))
-      (else (get-function-closure name (cons (cdr (car state)) (cons (cdr (cadr state)) (cddr state))))))))
+      (else (get-function-closure name (remove-first state))))))
 
 ; A function to count the number of parameters.
 (define num-params
@@ -309,8 +368,15 @@
 ; ------------------------------------------------------------------------------------------------------------------------------------
 ; ------------------------------------------------------------------------------------------------------------------------------------
 
+(define lookup
+  (lambda (name state)
+    (cond
+      ((null? state) (error "variable not found"))
+      ((null? (car state)) (lookup name (cddr state)))
+      ((eq? name (caar state)) (unbox (caadr state)))
+      (else (lookup name (remove-first state))))))
 ; get-var: looks up the current value of a variable in the environment.
-(define get-variable
+#|(define get-variable
   (lambda (var state)
     (displayln "DEBUG in get-variable:")  
     (displayln state)       
@@ -323,7 +389,7 @@
          {(not (box? (car (cadr state)))) (get-variable var (cdr state))}
          {(void? (unbox (car (cadr state)))) (error 'varerror "Variable not assigned: ~a" var)}
          {else (unbox (car (cadr state)))})]
-      [else (get-variable var (cons (cdr (car state)) (cons (cdr (cadr state)) (cddr state))))])))
+      [else (get-variable var (cons (cdr (car state)) (cons (cdr (cadr state)) (cddr state))))])))|#
 
 
 ;get-ptr: looks up a pointer (box) to the storage of a var in the env (pass-by-ref)
@@ -341,8 +407,9 @@
   (lambda (var val state)
     (cond
       ((check-binding var state) (error "Variable already declared: ~a" var))
-      ((null? (cddr state)) (list (cons var (car state)) (cons (box val) (car state))))
-      (else (append (list (cons var (car state)) (cons (box val) (cadr state))) (pop-layer state))))))
+      (else (cons (cons var (car state)) (cons (cons (box val) (cadr state)) (cddr state)))))))
+      #|((null? (cddr state)) (list (cons var (car state)) (cons (box val) (cadr state))))
+      (else (append (list (cons var (car state)) (cons (box val) (cadr state))) (pop-layer state))))))|#
 
 (define add-ptr
   (lambda (var ptr state)
@@ -356,7 +423,8 @@
   (lambda (var state)
     (cond
       ((not-list (car state)) (eq? (car state) var))
-      ((null? (car state)) (if (null? (cddr state)) #f (check-binding var (cddr state))))
+      ((null? (car state)) #f)
+      ;((null? (car state)) (if (null? (cddr state)) #f))
       ((eq? var (car (car state))) #t)
       (else (check-binding var (append (list (cdr (car state)) (cdr (cadr state))) (cddr state)))))))
 
@@ -397,7 +465,7 @@
 ;this returns a tuple containing a list of parameters, a list containing the function body, then an integer n, where the n deepest layers are the ones that are in scope of the function
 (define create-closure
   (lambda (params body state)
-    (list params body (lambda (v) (find-state state v)))))
+    (list params body (lambda (v) v))))
 
 ;helper: consider variables and functions on the same lexical layers to be in scope
 (define find-state
@@ -488,11 +556,20 @@
 (define function-name cadr)
 (define function-params caddr)
 (define function-body cadddr)
+(define funcall-name cadr)
+(define funcall-params cddr)
 (define params cddr)
-(define closure_params car)
-(define closure_body cadr)
-(define closure_getstate caddr)
+(define closure-params car)
+(define closure-body cadr)
+(define closure-getstate caddr)
+;takes a state and remove the first pair of bindings
+(define remove-first
+  (lambda (state)
+    (cons (cdar state) (cons (cdadr state) (cddr state)))))
 
 
 
 (define empty_state '(()()))
+(define newenvironment
+  (lambda ()
+    '(() ())))
