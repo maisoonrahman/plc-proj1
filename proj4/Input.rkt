@@ -1,4 +1,4 @@
-class A extends B{
+class B{
   static function main(){
     return 5;
   }

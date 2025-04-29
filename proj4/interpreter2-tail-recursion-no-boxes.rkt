@@ -12,8 +12,14 @@
 ; The main function.  Calls parser to get the parse tree and interprets it with a new environment.  Sets default continuations for return, break, continue, throw, and "next statement"
 (define interpret
   (lambda (file class-name)
-    (scheme->language
-     (lookup 'return (eval-function (lookup-method 'main (lookup class-name (get-overall-env file))) (get-overall-env file))))))
+    (let ((overall-env (get-overall-env file)))
+      (scheme->language
+        (eval-function
+          (lookup-method 'main (lookup class-name overall-env))
+          overall-env)))))
+
+
+
      ;(get-overall-env file))))
 
 ;just returns the state after running through the code and creating all the class closures
@@ -202,26 +208,44 @@
 
 (define interpret-class-creation
   (lambda (statement environment return next)
-    (insert (operand1 statement) (create-class-closure statement environment) environment)))
-
-
+    (next (insert (operand1 statement) (create-class-closure statement environment) environment))))
 
 (define eval-function
-  (lambda (func-closure environment) 1))
+  (lambda (func-closure environment)
+    (let* ((params (car func-closure))
+           (body (cadr func-closure))
+           (return-cont (caddr func-closure))
+           (new-env (push-frame environment))) ; Create new frame for function
+      (interpret-statement-list 
+        body
+        (bind-parameters params '() new-env) ; (no arguments for now, so empty list)
+        (lambda (env) (lookup 'return env))  ; When return happens, grab the 'return' value
+        (lambda (env) (myerror "Break used outside of loop"))
+        (lambda (env) (myerror "Continue used outside of loop"))
+        (lambda (v env) (myerror "Uncaught exception thrown"))
+        (lambda (env) (lookup 'return env)))))) ; After body ends, also return 'return'
+
+(define bind-parameters
+  (lambda (params args env)
+    (if (null? params)
+        env
+        (bind-parameters (cdr params) (cdr args) (insert (car params) (car args) env)))))
+
 
 ;lookup a method closure from a class closure
 (define lookup-method
   (lambda (name class-closure)
-    (lookup name (get-class-methods class-closure))))
+    (lookup name (list (get-class-methods class-closure)))))
+
     
 ;class-closure is of form (super-class-closure ((instance field names) (instance field instansiation or ())) ((method names) (method closures)))
 ;it does not currently return a closure in that format
 (define create-class-closure
   (lambda (statement environment)
-    (insert
-     (operand1 statement)
-     (list (get-super-class (operand2 statement)) (create-instance-field-bindings (operand3 statement)) (create-method-closures (operand3 statement)))
-     environment)))
+    (list
+      (get-super-class (operand2 statement)) 
+      (create-instance-field-bindings (operand3 statement)) 
+      (create-method-closures (operand3 statement)))))
 
 ;get the super class of a class definition
 (define get-super-class
@@ -276,6 +300,11 @@
 (define operand1 cadr)
 (define operand2 caddr)
 (define operand3 cadddr)
+(define classname cadr)
+(define classbody cadddr)
+(define superclass caddr)
+(define classfields cddr)
+
 
 (define exists-operand2?
   (lambda (statement)
